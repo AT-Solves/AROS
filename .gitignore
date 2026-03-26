@@ -9984,3 +9984,7 @@ frontend/node_modules/date-fns/fp/setHours/index.js.flow
 frontend/node_modules/date-fns/fp/setHours/package.json
 frontend/node_modules/date-fns/fp/setISODay/index.d.ts
 frontend/node_modules/date-fns/fp/setISODay/index.js
+node_modules/
+.env
+__pycache__/
+*.log
