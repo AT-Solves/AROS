@@ -1,0 +1,57 @@
+# Signal Detection Agent — Walkthrough
+
+## Files Created
+
+| File | Purpose |
+|------|---------|
+| [signal_detection_agent.py](file:///c:/Capstone%20Projects/AROS/Agent/AROS/agents/signal_detection_agent.py) | Core agent logic |
+| [__init__.py](file:///c:/Capstone%20Projects/AROS/Agent/AROS/agents/__init__.py) | Package init |
+| [test_signal_detection.py](file:///c:/Capstone%20Projects/AROS/Agent/AROS/tests/test_signal_detection.py) | 6 test scenarios |
+
+## What It Does
+
+1. **Computes % changes** for revenue, conversion rate, and cart abandonment
+2. **Detects 5 anomaly types**: [revenue_drop](file:///c:/Capstone%20Projects/AROS/Agent/AROS/tests/test_signal_detection.py#46-68), `conversion_drop`, `behavioral_shift`, `payment_issue`, `performance_issue`
+3. **Assigns severity** — HIGH (multiple signals or any drop > 30%), MEDIUM (single breach), LOW (none)
+4. **Assigns confidence** — 0.95 / 0.85 / 0.80 / 0.70 based on signal count and magnitude
+5. **Routes** to `DiagnosisAgent` when anomalies are found
+
+## Usage
+
+```bash
+# Pipe JSON from stdin
+echo '{"current":{...},"previous":{...}}' | python agents/signal_detection_agent.py
+
+# Or pass a file
+python agents/signal_detection_agent.py input.json
+```
+
+## Test Results — All 6 Passed ✅
+
+| Test | Scenario | Verifies |
+|------|----------|----------|
+| [test_no_anomaly](file:///c:/Capstone%20Projects/AROS/Agent/AROS/tests/test_signal_detection.py#22-43) | Stable metrics | alert=false, severity=LOW |
+| [test_single_signal_revenue_drop](file:///c:/Capstone%20Projects/AROS/Agent/AROS/tests/test_signal_detection.py#46-68) | Revenue −20% | MEDIUM, confidence 0.70 |
+| [test_multiple_signals](file:///c:/Capstone%20Projects/AROS/Agent/AROS/tests/test_signal_detection.py#71-92) | All metrics bad | HIGH, confidence ≥ 0.85 |
+| [test_large_single_drop](file:///c:/Capstone%20Projects/AROS/Agent/AROS/tests/test_signal_detection.py#95-114) | Revenue −40% | HIGH (large drop rule) |
+| [test_latency_only](file:///c:/Capstone%20Projects/AROS/Agent/AROS/tests/test_signal_detection.py#117-136) | 1200ms latency | performance_issue detected |
+| [test_readme_scenario](file:///c:/Capstone%20Projects/AROS/Agent/AROS/tests/test_signal_detection.py#139-162) | README example | conversion_drop + behavioral_shift + payment_issue |
+
+## Sample Output (README Scenario)
+
+```json
+{
+  "agent": "SignalDetectionAgent",
+  "alert": true,
+  "signals": [
+    { "type": "revenue_drop", "metric": "revenue", "change_pct": -40.0, ... },
+    { "type": "conversion_drop", "metric": "conversion_rate", "change_pct": -36.67, ... },
+    { "type": "behavioral_shift", "metric": "cart_abandonment_rate", "change_pct": 64.0, ... },
+    { "type": "payment_issue", "metric": "payment_failure_rate", ... },
+    { "type": "performance_issue", "metric": "latency_ms", ... }
+  ],
+  "severity": "HIGH",
+  "confidence": 0.95,
+  "next_agent": "DiagnosisAgent"
+}
+```

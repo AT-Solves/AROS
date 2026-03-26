@@ -1,0 +1,14 @@
+{
+  "current": {
+    "revenue": 385225600.00,
+    "conversion_rate": 7.98,
+    "cart_abandonment_rate": 74.83,
+    "latency_ms": 2970.08,
+    "payment_failure_rate": 24.00
+  },
+  "previous": {
+    "revenue": 371981400.00,
+    "conversion_rate": 7.95,
+    "cart_abandonment_rate": 74.77
+  }
+}
