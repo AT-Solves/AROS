@@ -5,6 +5,7 @@ Analyzes current vs previous KPI metrics and detects anomalies that may impact r
 
 import json
 import sys
+from datetime import datetime, timezone
 
 
 # ─── Thresholds ──────────────────────────────────────────────────────────────
@@ -14,6 +15,15 @@ ABANDONMENT_RISE_THRESHOLD = 15    # %
 PAYMENT_FAILURE_THRESHOLD = 10     # %
 LATENCY_THRESHOLD = 700            # ms
 HIGH_SEVERITY_DROP = 30            # % (absolute) triggers HIGH severity
+
+# Priority order for primary_signal selection (first match wins)
+_SIGNAL_PRIORITY = [
+    "payment_issue",
+    "performance_issue",
+    "revenue_drop",
+    "conversion_drop",
+    "behavioral_shift",
+]
 
 
 def compute_pct_change(current: float, previous: float) -> float:
@@ -68,7 +78,7 @@ def _signal_strength(signal: dict) -> float:
 
     # For %-change signals, use the absolute change_pct; for absolute-value
     # signals (latency, payment failure), use the raw current_value.
-    if signal["change_pct"] is not None:
+    if isinstance(signal["change_pct"], (int, float)):
         metric_value = abs(signal["change_pct"])
     else:
         metric_value = value
@@ -155,7 +165,7 @@ def detect_signals(data: dict) -> dict:
         signals.append({
             "type": "payment_issue",
             "metric": "payment_failure_rate",
-            "change_pct": None,
+            "change_pct": "threshold_breach",
             "current_value": current["payment_failure_rate"],
             "previous_value": None,
         })
@@ -164,7 +174,7 @@ def detect_signals(data: dict) -> dict:
         signals.append({
             "type": "performance_issue",
             "metric": "latency_ms",
-            "change_pct": None,
+            "change_pct": "threshold_breach",
             "current_value": current["latency_ms"],
             "previous_value": None,
         })
@@ -173,7 +183,7 @@ def detect_signals(data: dict) -> dict:
 
     # ── 3. Severity ──────────────────────────────────────────────────────
     any_large_drop = any(
-        s["change_pct"] is not None and abs(s["change_pct"]) > HIGH_SEVERITY_DROP
+        isinstance(s["change_pct"], (int, float)) and abs(s["change_pct"]) > HIGH_SEVERITY_DROP
         for s in signals
     )
 
@@ -207,17 +217,40 @@ def detect_signals(data: dict) -> dict:
 
     reasoning = " | ".join(parts)
 
-    # ── 6. Next agent ────────────────────────────────────────────────────
+    # ── 6. Primary signal (priority: payment > performance > others) ────
+    primary_signal = None
+    if signals:
+        signal_types = {s["type"] for s in signals}
+        for candidate in _SIGNAL_PRIORITY:
+            if candidate in signal_types:
+                primary_signal = candidate
+                break
+
+    # ── 7. Governance hook ───────────────────────────────────────────────
+    requires_attention = severity == "HIGH"
+
+    # ── 8. Next agent ────────────────────────────────────────────────────
     next_agent = "DiagnosisAgent" if alert else "None"
+
+    # ── 9. Logging block ─────────────────────────────────────────────────
+    log = {
+        "event": "anomaly_detected" if alert else "no_anomaly",
+        "signal_count": len(signals),
+        "primary_issue": primary_signal,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
     return {
         "agent": "SignalDetectionAgent",
         "alert": alert,
         "signals": signals,
+        "primary_signal": primary_signal,
         "severity": severity,
         "confidence": confidence,
+        "requires_attention": requires_attention,
         "reasoning": reasoning,
         "next_agent": next_agent,
+        "log": log,
     }
 
 

@@ -39,7 +39,11 @@ def test_no_anomaly():
     assert result["signals"] == []
     assert result["severity"] == "LOW"
     assert result["confidence"] == 0.0
+    assert result["primary_signal"] is None
+    assert result["requires_attention"] is False
     assert result["next_agent"] == "None"
+    assert result["log"]["event"] == "no_anomaly"
+    assert result["log"]["signal_count"] == 0
     print("✅ test_no_anomaly passed")
 
 
@@ -65,7 +69,10 @@ def test_single_signal_revenue_drop():
     assert result["severity"] == "MEDIUM"
     # 1 signal, no bonuses → 0.6 + 0.1 = 0.70
     assert result["confidence"] == 0.70, f"Got {result['confidence']}"
+    assert result["primary_signal"] == "revenue_drop"
+    assert result["requires_attention"] is False  # MEDIUM, not HIGH
     assert result["next_agent"] == "DiagnosisAgent"
+    assert result["log"]["event"] == "anomaly_detected"
     print("✅ test_single_signal_revenue_drop passed")
 
 
@@ -88,9 +95,16 @@ def test_multiple_signals():
     assert result["alert"] is True
     assert len(result["signals"]) >= 3
     assert result["severity"] == "HIGH"
-    # 5 signals + payment>20 + latency>1000 → 0.6+0.5+0.1+0.1 = 1.3 → capped 0.95
     assert result["confidence"] == 0.95, f"Got {result['confidence']}"
+    assert result["primary_signal"] == "payment_issue"  # highest priority
+    assert result["requires_attention"] is True
     assert result["next_agent"] == "DiagnosisAgent"
+    assert result["log"]["signal_count"] >= 3
+    assert result["log"]["primary_issue"] == "payment_issue"
+    # Verify threshold_breach for payment/latency signals
+    for s in result["signals"]:
+        if s["type"] in ("payment_issue", "performance_issue"):
+            assert s["change_pct"] == "threshold_breach"
     print("✅ test_multiple_signals passed")
 
 
@@ -135,7 +149,9 @@ def test_latency_only():
     )
     assert result["alert"] is True
     assert result["signals"][0]["type"] == "performance_issue"
+    assert result["signals"][0]["change_pct"] == "threshold_breach"
     assert result["severity"] == "MEDIUM"
+    assert result["primary_signal"] == "performance_issue"
     print("✅ test_latency_only passed")
 
 
