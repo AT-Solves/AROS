@@ -7,17 +7,17 @@
 }
 
 :root {
-  --primary: #0f172a;
-  --secondary: #1e293b;
+  --primary: #ffffff;
+  --secondary: #f3f4f6;
   --accent: #3b82f6;
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
-  --text: #f1f5f9;
-  --text-dim: #cbd5e1;
-  --border: #334155;
-  --bg: #0f172a;
-  --bg-light: #1e293b;
+  --text: #1f2937;
+  --text-dim: #6b7280;
+  --border: #e5e7eb;
+  --bg: #ffffff;
+  --bg-light: #f9fafb;
 }
 
 body {
@@ -31,14 +31,14 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  background: linear-gradient(135deg, #f9fafb 0%, #ffffff 100%);
 }
 
 .app-header {
-  background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%);
+  background: linear-gradient(90deg, #ffffff 0%, #f9fafb 100%);
   padding: 2rem;
   border-bottom: 2px solid var(--border);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 
 .app-header h1 {
@@ -79,7 +79,7 @@ body {
 }
 
 .nav-btn:hover {
-  background-color: var(--primary);
+  background-color: var(--bg-light);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -125,11 +125,12 @@ body {
   border-radius: 0.5rem;
   padding: 1.5rem;
   transition: all 0.3s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .card:hover {
   border-color: var(--accent);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
 }
 
 .card-title {
@@ -271,18 +272,18 @@ body {
 }
 
 .badge-high {
-  background-color: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
 }
 
 .badge-medium {
-  background-color: rgba(245, 158, 11, 0.2);
-  color: #fcd34d;
+  background-color: rgba(245, 158, 11, 0.1);
+  color: #d97706;
 }
 
 .badge-low {
-  background-color: rgba(34, 197, 94, 0.2);
-  color: #86efac;
+  background-color: rgba(34, 197, 94, 0.1);
+  color: #059669;
 }
 
 /* Status Indicators */

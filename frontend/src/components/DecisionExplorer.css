@@ -65,7 +65,7 @@
 
 .section-status {
   font-size: 0.85rem;
-  background-color: rgba(59, 130, 246, 0.2);
+  background-color: rgba(59, 130, 246, 0.1);
   color: var(--accent);
   padding: 0.35rem 0.75rem;
   border-radius: 0.25rem;
@@ -73,18 +73,18 @@
 }
 
 .section-status.severity-high {
-  background-color: rgba(239, 68, 68, 0.2);
-  color: #fca5a5;
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
 }
 
 .section-status.severity-medium {
-  background-color: rgba(245, 158, 11, 0.2);
-  color: #fcd34d;
+  background-color: rgba(245, 158, 11, 0.1);
+  color: #d97706;
 }
 
 .section-status.severity-low {
-  background-color: rgba(34, 197, 94, 0.2);
-  color: #86efac;
+  background-color: rgba(34, 197, 94, 0.1);
+  color: #059669;
 }
 
 .expand-icon {
@@ -183,7 +183,7 @@
 .alert-danger {
   background-color: rgba(239, 68, 68, 0.1);
   border-color: var(--danger);
-  color: #fca5a5;
+  color: #dc2626;
 }
 
 .causes-list {
