@@ -1,165 +1,236 @@
-"""
-AROS – Execution Agent
-Deploys approved strategies to the production system.
-"""
+# AROS – Execution Agent (Unified: Old + New + Policy + Communication)
 
 import json
 import sys
+from typing import Dict, Any
+from datetime import datetime
 import uuid
-from datetime import datetime, timezone
 
 
-def execute_strategy(decision_output: dict, approved: bool = False) -> dict:
-    """
-    Execute an approved strategy.
-    
-    Args:
-        decision_output: Output from DecisionAgent
-        approved: Whether strategy has been explicitly approved
-    
-    Returns:
-        {
-            "agent": "ExecutionAgent",
-            "deployment_id": str,
-            "execution_status": "SUCCESS" | "PENDING_APPROVAL" | "FAILED",
-            "action_type": str,
-            "details": dict,
-            "deployed_at": str,
-            "estimated_duration": str,
-            "rollback_available": bool,
-            "reasoning": str,
-            "log": dict
+# ─────────────────────────────────────────────
+# CONFIG
+# ─────────────────────────────────────────────
+CONFIG = {
+    "max_actions_per_run": 1,
+    "allow_auto_execution": False,   # keep safe by default
+}
+
+
+# ─────────────────────────────────────────────
+# OLD + NEW ACTION MAPPING (MERGED)
+# ─────────────────────────────────────────────
+def map_action(action: str) -> Dict[str, Any]:
+
+    normalized = (action or "").strip().lower()
+
+    # 🔥 NEW ACTION TYPES (from strategy agent)
+    if normalized == "apply_discount":
+        return {
+            "type": "apply_discount",
+            "endpoint": "/api/pricing/discount",
+            "method": "POST",
         }
-    """
-    
-    decision = decision_output.get("decision", "NOTIFY")
-    strategy_id = decision_output.get("strategy_id", "UNKNOWN")
-    action_type = decision_output.get("action_type", "")
-    deployment_id = str(uuid.uuid4())[:8]
-    
-    # ── Execution logic ──────────────────────────────────────────────────────
-    # AUTO → execute immediately
-    # NOTIFY → pending human approval
-    # ESCALATE → pending escalation review
-    
-    if decision == "AUTO":
-        execution_status = "SUCCESS"
-        reason = "AUTO-approved strategy executing now"
-        estimated_duration = get_execution_duration(action_type)
-    elif decision == "NOTIFY" and approved:
-        execution_status = "SUCCESS"
-        reason = "Human-approved strategy executing now"
-        estimated_duration = get_execution_duration(action_type)
-    else:
-        execution_status = "PENDING_APPROVAL"
-        reason = f"Awaiting {decision} review before execution"
-        estimated_duration = None
-    
-    # ── Generate execution details based on action type ──────────────────────
-    if action_type == "discount":
-        details = {
-            "type": "apply_discount_promotion",
-            "discount_pct": 25,
-            "duration_hours": 24,
-            "target_segments": ["high_value_users", "recent_abandoners"],
-            "channels": ["email", "web_banner", "mobile_app"],
-            "budget_cap": 100000,
-        }
-    elif action_type == "infrastructure_optimization":
-        details = {
+
+    if normalized == "optimize_performance":
+        return {
             "type": "scale_infrastructure",
-            "actions": [
-                "Scale web servers +50%",
-                "Optimize checkout query (cache strategy)",
-                "Enable CDN for static assets"
-            ],
-            "estimated_latency_reduction_ms": 200,
+            "endpoint": "/api/system/scale",
+            "method": "POST",
         }
-    elif action_type == "fraud_mitigation":
-        details = {
-            "type": "adjust_fraud_policies",
-            "actions": [
-                "Reduce false-positive fraud block rate by 20%",
-                "Whitelist previously-blocked payment methods",
-                "Increase allowance for repeat customers"
-            ],
-            "expected_payment_recovery_pct": 15,
+
+    if normalized == "investigate_payments":
+        return {
+            "type": "check_payment_gateway",
+            "endpoint": "/api/payments/health",
+            "method": "GET",
         }
-    elif action_type == "marketing_campaign":
-        details = {
-            "type": "launch_cart_recovery_campaign",
-            "channels": ["email", "sms"],
-            "offer": "15% off + free shipping",
-            "target_segment": "abandoned_carts_24h",
-            "campaign_duration_hours": 48,
-            "estimated_reach": 50000,
+
+    if normalized == "improve_checkout":
+        return {
+            "type": "optimize_checkout_flow",
+            "endpoint": "/api/checkout/optimize",
+            "method": "POST",
         }
-    elif action_type == "ui_change":
-        details = {
-            "type": "deploy_ui_changes",
-            "changes": [
-                "Reduce checkout form from 15 to 7 fields",
-                "Enable Apple Pay / Google Pay",
-                "Add progress indicator to checkout"
-            ],
-            "rollout_strategy": "gradual (10% → 50% → 100% over 3 hours)",
-            "requires_monitored_rollout": True,
+
+    # 🔥 OLD LOGIC (fallback / compatibility)
+    if "discount" in normalized:
+        return {
+            "type": "apply_discount",
+            "endpoint": "/api/pricing/discount",
+            "method": "POST",
         }
-    else:
-        details = {"type": "unknown"}
-    
-    # ── Rollback availability ────────────────────────────────────────────────
-    rollback_available = action_type in ["discount", "marketing_campaign", "ui_change"]
-    
-    # ── Build reasoning ──────────────────────────────────────────────────────
-    reasoning = f"Strategy {strategy_id} ({action_type}). " \
-                f"Decision: {decision}. " \
-                f"Status: {execution_status}. " \
-                f"{reason}."
-    
-    if execution_status == "SUCCESS":
-        reasoning += f" Deployment ID: {deployment_id}. Monitor for 30 min."
-    
+
+    if "performance" in normalized or "latency" in normalized:
+        return {
+            "type": "scale_infrastructure",
+            "endpoint": "/api/system/scale",
+            "method": "POST",
+        }
+
+    if "payment" in normalized:
+        return {
+            "type": "check_payment_gateway",
+            "endpoint": "/api/payments/health",
+            "method": "GET",
+        }
+
+    return {"type": "noop", "endpoint": None, "method": None}
+
+
+# ─────────────────────────────────────────────
+# VALIDATION (SAFE EXECUTION)
+# ─────────────────────────────────────────────
+def validate_execution(decision: Dict[str, Any]) -> bool:
+
+    if decision.get("decision") != "EXECUTE":
+        return False
+
+    if decision.get("requires_human_approval"):
+        return False
+
+    try:
+        confidence = float(decision.get("confidence", 0))
+    except:
+        confidence = 0
+
+    if confidence < 0.6:
+        return False
+
+    action_config = map_action(decision.get("selected_action"))
+    if action_config["type"] == "noop":
+        return False
+
+    return True
+
+
+# ─────────────────────────────────────────────
+# ACTION EXECUTION (SIMULATED)
+# ─────────────────────────────────────────────
+def execute_action(action_config: Dict[str, Any]) -> Dict[str, Any]:
+
     return {
+        "status": "success",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "details": f"Executed {action_config.get('type')}",
+        "endpoint": action_config.get("endpoint"),
+        "method": action_config.get("method"),
+    }
+
+
+# ─────────────────────────────────────────────
+# EMAIL GENERATION
+# ─────────────────────────────────────────────
+def generate_email(decision: Dict[str, Any]):
+
+    action = decision.get("selected_action")
+
+    templates = {
+        "apply_discount": "We’re offering you an exclusive discount to enhance your experience!",
+        "optimize_performance": "We’ve improved performance for faster browsing.",
+        "investigate_payments": "We’re improving payment reliability for smoother transactions.",
+        "improve_checkout": "We’ve simplified checkout to make your purchase easier.",
+    }
+
+    return {
+        "subject": "Update from AROS 🚀",
+        "body": templates.get(action, "We’re continuously improving your experience.")
+    }
+
+
+# ─────────────────────────────────────────────
+# ALERTING
+# ─────────────────────────────────────────────
+def send_slack_alert(message: str):
+    print("\n[SLACK ALERT]")
+    print(message)
+
+
+def send_email(email_content: Dict[str, Any]):
+    print("\n[EMAIL SENT]")
+    print(email_content)
+
+
+# ─────────────────────────────────────────────
+# ROLLBACK
+# ─────────────────────────────────────────────
+def rollback_action(deployment_id: str):
+    return {
+        "status": "rollback_available",
+        "deployment_id": deployment_id
+    }
+
+
+# ─────────────────────────────────────────────
+# MAIN EXECUTION
+# ─────────────────────────────────────────────
+def run_execution(data: Dict[str, Any]) -> Dict[str, Any]:
+
+    deployment_id = str(uuid.uuid4())
+    action_config = map_action(data.get("selected_action"))
+
+    result = {
         "agent": "ExecutionAgent",
         "deployment_id": deployment_id,
-        "execution_status": execution_status,
-        "strategy_id": strategy_id,
-        "action_type": action_type,
-        "details": details,
-        "deployed_at": datetime.now(timezone.utc).isoformat() if execution_status == "SUCCESS" else None,
-        "estimated_duration": estimated_duration,
-        "rollback_available": rollback_available,
-        "reasoning": reasoning,
-        "log": {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "deployment_id": deployment_id,
-            "execution_status": execution_status,
-            "strategy_id": strategy_id,
-        }
+        "action": action_config,
+        "executed": False,
+        "mode": "dry_run",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "monitoring": {"status": "pending", "check_after_minutes": 30},
     }
 
+    # ─────────────────────────────
+    # EXECUTION CONTROL
+    # ─────────────────────────────
+    if validate_execution(data) and CONFIG["allow_auto_execution"]:
 
-def get_execution_duration(action_type: str) -> str:
-    """Return estimated execution duration for action type"""
-    durations = {
-        "discount": "5 minutes",
-        "infrastructure_optimization": "30 minutes",
-        "fraud_mitigation": "10 minutes",
-        "marketing_campaign": "2 hours",
-        "ui_change": "3-6 hours (gradual rollout)",
-    }
-    return durations.get(action_type, "Unknown")
+        execution_result = execute_action(action_config)
 
+        result.update({
+            "executed": True,
+            "mode": "auto",
+            "execution_result": execution_result,
+            "monitoring": {"status": "initiated", "check_after_minutes": 15},
+        })
 
-# ─── CLI entry point ────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        with open(sys.argv[1], "r") as f:
-            raw = f.read()
     else:
-        raw = sys.stdin.read()
-    
-    input_data = json.loads(raw)
-    result = execute_strategy(input_data)
-    print(json.dumps(result, indent=2))
+        result["reason"] = "blocked_by_guardrails_or_manual_mode"
+
+    # ─────────────────────────────
+    # COMMUNICATION LAYER
+    # ─────────────────────────────
+    if data.get("notify"):
+
+        slack_message = f"""
+🚨 AROS ALERT
+Action: {data.get('selected_action')}
+Decision: {data.get('policy_decision')}
+Reason: {data.get('reason')}
+Confidence: {data.get('confidence')}
+"""
+
+        send_slack_alert(slack_message)
+
+        email = generate_email(data)
+        send_email(email)
+
+        result["notifications"] = {
+            "slack": True,
+            "email": email
+        }
+
+    # ─────────────────────────────
+    # ROLLBACK SUPPORT
+    # ─────────────────────────────
+    result["rollback"] = rollback_action(deployment_id)
+
+    return result
+
+
+# ─────────────────────────────────────────────
+# ENTRY POINT
+# ─────────────────────────────────────────────
+if __name__ == "__main__":
+    raw = sys.stdin.read() or "{}"
+    payload = json.loads(raw)
+    output = run_execution(payload)
+    print(json.dumps(output, indent=2))

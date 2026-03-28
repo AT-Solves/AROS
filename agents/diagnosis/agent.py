@@ -1,203 +1,189 @@
-"""
-AROS – Diagnosis Agent
-Analyzes signals and raw data to identify 1–3 root causes with evidence.
-"""
+# AROS – Diagnosis Agent (Improved Reasoning + Conflict Handling)
 
 import json
 import sys
-from datetime import datetime, timezone
+from typing import Dict, Any
+from groq import Groq
+from config import CONFIG
+
+client = Groq(api_key=CONFIG["groq"]["api_key"])
 
 
-def diagnose_causes(signal_output: dict, raw_data: dict = None) -> dict:
-    """
-    Analyze signal output and identify root causes.
-    
-    Args:
-        signal_output: Output from SignalDetectionAgent (contains signals, severity, etc.)
-        raw_data: Raw KPI metrics (for evidence gathering)
-    
-    Returns:
-        {
-            "agent": "DiagnosisAgent",
-            "diagnosed_causes": [
-                {
-                    "cause": str,
-                    "confidence": float (0-1),
-                    "evidence": [list of evidence],
-                    "affected_metric": str,
-                    "severity": "LOW" | "MEDIUM" | "HIGH"
-                },
-                ...
+# ─────────────────────────────────────────────
+# PRE-ANALYSIS (STRUCTURED HINTS)
+# ─────────────────────────────────────────────
+def build_context_insights(data: Dict[str, Any]) -> Dict[str, Any]:
+
+    current = data.get("kpi", {}).get("current", {})
+    previous = data.get("kpi", {}).get("previous", {})
+
+    insights = {
+        "revenue_growth": current.get("revenue", 0) > previous.get("revenue", 0),
+        "latency_increase": current.get("latency_ms", 0) > previous.get("latency_ms", 0),
+        "conversion_drop": current.get("conversion_rate", 0) < previous.get("conversion_rate", 0),
+        "high_payment_failure": current.get("payment_failure_rate", 0) > 15,
+        "high_abandonment": current.get("cart_abandonment_rate", 0) > 60,
+    }
+
+    return insights
+
+
+# ─────────────────────────────────────────────
+# PROMPT
+# ─────────────────────────────────────────────
+def build_prompt(data: Dict[str, Any], insights: Dict[str, Any]) -> str:
+
+    return f"""
+You are an expert E-commerce Diagnosis Agent.
+
+Your goal: Identify root causes of revenue/system anomalies using data + signals.
+
+INPUT DATA:
+{json.dumps(data, indent=2)}
+
+DERIVED INSIGHTS:
+{json.dumps(insights, indent=2)}
+
+---
+
+IMPORTANT REASONING RULES:
+
+1. If revenue increases BUT latency and failures increase:
+   → Likely system scaling issue or infrastructure bottleneck
+
+2. If cart abandonment is high:
+   → UX, pricing, or performance issue
+
+3. If payment failures are high:
+   → payment gateway or transaction system issue
+
+4. If signals conflict:
+   → Provide BEST POSSIBLE explanation (do NOT say unknown immediately)
+
+5. Only mark uncertainty = true if NO reasonable hypothesis exists
+
+---
+
+TASK:
+
+- Identify root causes
+- Correlate signals + metrics
+- Provide primary cause
+- Avoid vague answers
+
+---
+
+OUTPUT FORMAT (STRICT JSON):
+
+{{
+  "root_causes": ["..."],
+  "primary_cause": "...",
+  "confidence": 0.0,
+  "uncertainty": false
+}}
+"""
+
+
+# ─────────────────────────────────────────────
+# LLM CALL
+# ─────────────────────────────────────────────
+def call_llm(prompt: str) -> Dict[str, Any]:
+
+    try:
+        response = client.chat.completions.create(
+            model="llama3-70b-8192",
+            messages=[
+                {"role": "system", "content": "You are a precise diagnosis system."},
+                {"role": "user", "content": prompt},
             ],
-            "primary_cause": str,
-            "fraud_score": float (0-1),
-            "reasoning": str,
-            "next_agent": "StrategyAgent",
-            "log": dict
+            temperature=0.2,
+        )
+
+        content = response.choices[0].message.content
+        return json.loads(content)
+
+    except Exception as e:
+        return {
+            "root_causes": ["llm_error"],
+            "primary_cause": "error",
+            "confidence": 0.0,
+            "uncertainty": True,
+            "error": str(e)
         }
-    """
-    
-    signals = signal_output.get("signals", [])
-    primary_signal = signal_output.get("primary_signal")
-    severity = signal_output.get("severity", "LOW")
-    
-    diagnosed_causes = []
-    fraud_score = 0.0
-    
-    # ── Analyze each signal to infer root cause ──────────────────────────────
-    
-    for sig in signals:
-        sig_type = sig.get("type")
-        
-        # ── Payment Issue Detection ──────────────────────────────────────────
-        if sig_type == "payment_issue":
-            failure_rate = sig.get("current_value", 0)
-            
-            # High failure rate suggests gateway outage or fraud detection
-            if failure_rate > 20:
-                diagnosed_causes.append({
-                    "cause": "Payment Gateway Outage or Fraud Detection Triggered",
-                    "confidence": 0.85,
-                    "evidence": [
-                        f"Payment failure rate: {failure_rate}%",
-                        "Baseline typically 5-10%",
-                        "Spike indicates systemic issue or fraud block"
-                    ],
-                    "affected_metric": "payment_failure_rate",
-                    "severity": "HIGH" if failure_rate > 30 else "MEDIUM",
-                    "priority": 1
-                })
-                fraud_score = min(0.5 + (failure_rate - 10) / 50, 1.0)
-        
-        # ── Performance/Latency Issue ────────────────────────────────────────
-        elif sig_type == "performance_issue":
-            latency = sig.get("current_value", 0)
-            
-            if latency > 1000:
-                diagnosed_causes.append({
-                    "cause": "Severe Performance Degradation (High Latency)",
-                    "confidence": 0.90,
-                    "evidence": [
-                        f"Average latency: {latency}ms",
-                        "Baseline: 400-500ms",
-                        "Users experiencing slow checkout = higher abandonment"
-                    ],
-                    "affected_metric": "latency_ms",
-                    "severity": "HIGH",
-                    "priority": 2
-                })
-            else:
-                diagnosed_causes.append({
-                    "cause": "Moderate Latency Increase",
-                    "confidence": 0.75,
-                    "evidence": [
-                        f"Average latency: {latency}ms",
-                        "May cause conversion drop if combined with other factors"
-                    ],
-                    "affected_metric": "latency_ms",
-                    "severity": "MEDIUM",
-                    "priority": 2
-                })
-        
-        # ── Revenue Drop Detection ───────────────────────────────────────────
-        elif sig_type == "revenue_drop":
-            revenue_change = sig.get("change_pct", 0)
-            
-            # Revenue drop often cascades from other issues
-            diagnosed_causes.append({
-                "cause": "Revenue Impact from Primary Issues",
-                "confidence": 0.80,
-                "evidence": [
-                    f"Revenue dropped: {revenue_change}%",
-                    "Likely consequence of payment failures, latency, or abandonment",
-                    "Indicates customer friction upstream"
-                ],
-                "affected_metric": "revenue",
-                "severity": "HIGH",
-                "priority": 1
-            })
-        
-        # ── Conversion Drop Detection ────────────────────────────────────────
-        elif sig_type == "conversion_drop":
-            conversion_change = sig.get("change_pct", 0)
-            
-            diagnosed_causes.append({
-                "cause": "Conversion Funnel Breakdown",
-                "confidence": 0.85,
-                "evidence": [
-                    f"Conversion rate dropped: {conversion_change}%",
-                    "Causes: Latency spike, payment issues, or UX friction"
-                ],
-                "affected_metric": "conversion_rate",
-                "severity": "HIGH" if abs(conversion_change) > 30 else "MEDIUM",
-                "priority": 3
-            })
-        
-        # ── Behavioral Shift (Abandonment) ───────────────────────────────────
-        elif sig_type == "behavioral_shift":
-            abandonment_change = sig.get("change_pct", 0)
-            
-            diagnosed_causes.append({
-                "cause": "Cart Abandonment Surge",
-                "confidence": 0.78,
-                "evidence": [
-                    f"Abandonment rate increased: +{abandonment_change}%",
-                    "Users dropping items before checkout",
-                    "Likely causes: price concerns, shipping costs, payment issues"
-                ],
-                "affected_metric": "cart_abandonment_rate",
-                "severity": "MEDIUM",
-                "priority": 4
-            })
-    
-    # ── Rank causes by priority ──────────────────────────────────────────────
-    diagnosed_causes = sorted(diagnosed_causes, key=lambda x: x.get("priority", 99))
-    
-    # Keep top 3 causes
-    diagnosed_causes = diagnosed_causes[:3]
-    
-    # Remove priority from output
-    for cause in diagnosed_causes:
-        del cause["priority"]
-    
-    # ── Determine primary cause ──────────────────────────────────────────────
-    primary_cause = diagnosed_causes[0]["cause"] if diagnosed_causes else "Unknown"
-    
-    # ── Build reasoning ──────────────────────────────────────────────────────
-    reasoning_parts = [
-        f"Analyzed {len(signals)} signals across KPI metrics.",
-        f"Primary signal: {primary_signal}.",
-        f"Identified {len(diagnosed_causes)} root cause(s)."
-    ]
-    
-    if fraud_score > 0.65:
-        reasoning_parts.append(f"⚠️  FRAUD RISK DETECTED (score: {fraud_score:.2f}). Escalation required.")
-    
-    reasoning = " ".join(reasoning_parts)
-    
+
+
+# ─────────────────────────────────────────────
+# FALLBACK LOGIC (VERY IMPORTANT)
+# ─────────────────────────────────────────────
+def fallback_reasoning(insights: Dict[str, Any]) -> Dict[str, Any]:
+
+    # Handle scaling contradiction
+    if insights["revenue_growth"] and insights["latency_increase"]:
+        return {
+            "root_causes": ["traffic surge causing infrastructure bottleneck"],
+            "primary_cause": "scaling_issue",
+            "confidence": 0.7,
+            "uncertainty": False
+        }
+
+    # Payment issue
+    if insights["high_payment_failure"]:
+        return {
+            "root_causes": ["payment gateway instability"],
+            "primary_cause": "payment_failure",
+            "confidence": 0.8,
+            "uncertainty": False
+        }
+
     return {
-        "agent": "DiagnosisAgent",
-        "diagnosed_causes": diagnosed_causes,
-        "primary_cause": primary_cause,
-        "fraud_score": fraud_score,
-        "reasoning": reasoning,
-        "next_agent": "StrategyAgent",
-        "log": {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "causes_identified": len(diagnosed_causes),
-            "signals_analyzed": len(signals),
-        }
+        "root_causes": [],
+        "primary_cause": "unknown",
+        "confidence": 0.3,
+        "uncertainty": True
     }
 
 
-# ─── CLI entry point ────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        with open(sys.argv[1], "r") as f:
-            raw = f.read()
-    else:
-        raw = sys.stdin.read()
-    
-    input_data = json.loads(raw)
-    result = diagnose_causes(input_data)
+# ─────────────────────────────────────────────
+# MAIN FUNCTION
+# ─────────────────────────────────────────────
+def diagnose(data: Dict[str, Any]) -> Dict[str, Any]:
+
+    insights = build_context_insights(data)
+    prompt = build_prompt(data, insights)
+
+    llm_output = call_llm(prompt)
+
+    # Use fallback if LLM uncertain
+    if llm_output.get("uncertainty", True):
+        fallback = fallback_reasoning(insights)
+        llm_output = fallback
+
+    result = {
+        "agent": "DiagnosisAgent",
+        "signals": data.get("signals", []),
+        "signal_count": len(data.get("signals", [])),
+        "severity": data.get("severity", "LOW"),
+        "confidence": llm_output.get("confidence", 0.5),
+        "requires_attention": True,
+        "diagnosis": llm_output,
+        "next_agent": "StrategyAgent",
+        "log": {
+            "status": "completed",
+            "uncertainty": llm_output.get("uncertainty", False)
+        }
+    }
+
+    print("\n=== DIAGNOSIS OUTPUT (IMPROVED) ===\n")
     print(json.dumps(result, indent=2))
+
+    return result
+
+
+# ─────────────────────────────────────────────
+# ENTRY POINT
+# ─────────────────────────────────────────────
+if __name__ == "__main__":
+    raw = sys.stdin.read() or "{}"
+    data = json.loads(raw)
+    output = diagnose(data)
+    print(json.dumps(output, indent=2))
