@@ -98,7 +98,7 @@ def validate_strategy(strategy: dict, diagnosis: dict = None, raw_data: dict = N
         decision = "ESCALATE"
     elif blast_radius == "CRITICAL":
         decision = "ESCALATE"
-    elif strategy.get("risk_level") == "LOW" and strategy.get("confidence", 0) > 0.8:
+    elif str(strategy.get("risk_level", "")).lower() == "low" and strategy.get("confidence", 0) >= 0.8:
         decision = "AUTO"
     else:
         decision = "NOTIFY"

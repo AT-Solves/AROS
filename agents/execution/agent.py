@@ -1,10 +1,14 @@
 # AROS – Execution Agent (Unified: Old + New + Policy + Communication)
 
 import json
+import os
 import sys
 from typing import Dict, Any
 from datetime import datetime
 import uuid
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 # ─────────────────────────────────────────────
@@ -12,7 +16,7 @@ import uuid
 # ─────────────────────────────────────────────
 CONFIG = {
     "max_actions_per_run": 1,
-    "allow_auto_execution": False,   # keep safe by default
+    "allow_auto_execution": os.getenv("ALLOW_AUTO_EXECUTION", "false").lower() == "true",
 }
 
 
