@@ -27,6 +27,8 @@ from agents.diagnosis.agent import diagnose
 from agents.strategy.agent import recommend_strategy
 from agents.simulation.agent import simulate
 from agents.decision.agent import make_decision
+from agents.execution.agent import run_execution
+from agents.reflection.agent import reflect
 
 # ─── FastAPI App ────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -301,6 +303,20 @@ async def agents_overview():
         except Exception:
             decision_details = {}
 
+        # Run execution live using full pipeline context + decision output
+        try:
+            execution_input = {**decision_input, **decision_details} if decision_input else decision_details
+            execution_details = run_execution(execution_input) if execution_input else {}
+        except Exception:
+            execution_details = {}
+
+        # Run reflection live from full context + execution output
+        try:
+            reflection_input = {**execution_input, **execution_details} if execution_input else execution_details
+            reflection_details = reflect(reflection_input) if reflection_input else {}
+        except Exception:
+            reflection_details = {}
+
         return {
             "total_decisions": len(decisions),
             "status_counts": status_counts,
@@ -383,10 +399,22 @@ async def agents_overview():
                     "title": "Execution Agent",
                     "description": "Executes the approved strategy and logs deployment outcomes.",
                     "primary_metrics": {
-                        "execution_status": ((latest_data.get("execution_result") or {})).get("execution_status", "PENDING"),
-                        "deployment_id": ((latest_data.get("execution_result") or {})).get("deployment_id", "N/A"),
+                        "mode": execution_details.get("mode", "dry_run"),
+                        "selected_action": (execution_details.get("decision_taken") or {}).get("selected_action", "N/A"),
+                        "options_count": len(execution_details.get("execution_options") or []),
                     },
-                    "details": latest_data.get("execution_result") or {},
+                    "details": execution_details,
+                },
+                {
+                    "id": "reflection",
+                    "title": "Reflection Agent",
+                    "description": "Evaluates issue-to-decision alignment and recommends learning actions.",
+                    "primary_metrics": {
+                        "status": (reflection_details.get("evaluation") or {}).get("status", "N/A"),
+                        "score": (reflection_details.get("evaluation") or {}).get("score", 0),
+                        "issues_reviewed": len(reflection_details.get("issue_feedback") or []),
+                    },
+                    "details": reflection_details,
                 },
             ],
             "links": {

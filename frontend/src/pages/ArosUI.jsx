@@ -150,7 +150,7 @@ export default function ArosUI() {
           <>
             {operatorAction ? <p className="operator-feedback">{operatorAction}</p> : null}
 
-            <div className={selectedStage === "ingestion" || selectedStage === "signal_detection" || selectedStage === "diagnosis" || selectedStage === "strategy" || selectedStage === "simulation" || selectedStage === "decision" ? "workspace-full" : "workspace-grid"}>
+            <div className={selectedStage === "ingestion" || selectedStage === "signal_detection" || selectedStage === "diagnosis" || selectedStage === "strategy" || selectedStage === "simulation" || selectedStage === "decision" || selectedStage === "execution" || selectedStage === "reflection" ? "workspace-full" : "workspace-grid"}>
               <section className="workspace-primary">
                 {selectedStage === "ingestion" ? (
                   <IngestionPanel details={viewModel.stageDetails.ingestion} />
@@ -176,6 +176,19 @@ export default function ArosUI() {
                     details={viewModel.stageDetails.decision}
                     simulation={viewModel.stageDetails.simulation}
                   />
+                ) : selectedStage === "execution" ? (
+                  <ExecutionPanel
+                    execution={viewModel.stageDetails.execution}
+                    executionMode={viewModel.executionMode}
+                    decision={viewModel.stageDetails.decision}
+                  />
+                ) : selectedStage === "reflection" ? (
+                  <ReflectionPanel
+                    reflection={viewModel.stageDetails.reflection}
+                    execution={viewModel.stageDetails.execution}
+                    decision={viewModel.stageDetails.decision}
+                    simulation={viewModel.stageDetails.simulation}
+                  />
                 ) : (
                   <AgentPanel
                     stage={selectedStage}
@@ -187,7 +200,7 @@ export default function ArosUI() {
                 <ChartCard trendSeries={viewModel.trendSeries} simulationSeries={viewModel.simulationSeries} />
               </section>
 
-              {selectedStage !== "ingestion" && selectedStage !== "signal_detection" && selectedStage !== "diagnosis" && selectedStage !== "strategy" && selectedStage !== "simulation" && selectedStage !== "decision" && (
+              {selectedStage !== "ingestion" && selectedStage !== "signal_detection" && selectedStage !== "diagnosis" && selectedStage !== "strategy" && selectedStage !== "simulation" && selectedStage !== "decision" && selectedStage !== "execution" && selectedStage !== "reflection" && (
                 <section className="workspace-secondary">
                   <DecisionCard decision={viewModel.stageDetails.decision} onAction={handleDecisionAction} />
                   <ExecutionPanel

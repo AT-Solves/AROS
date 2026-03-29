@@ -318,8 +318,9 @@ export function buildOverviewViewModel(overview) {
       getAgentDetails(overview, "simulation") ||
       getByPath(latestDecision, STAGE_KEY_PATHS.simulation[0]),
     decision: normalizeDecisionDetails(rawDecision, latestDecision),
-    execution: getByPath(latestDecision, STAGE_KEY_PATHS.execution[0]) || getAgentDetails(overview, "execution"),
+    execution: getAgentDetails(overview, "execution") || getByPath(latestDecision, STAGE_KEY_PATHS.execution[0]),
     reflection:
+      getAgentDetails(overview, "reflection") ||
       getByPath(latestDecision, STAGE_KEY_PATHS.reflection[0]) ||
       getByPath(latestDecision, STAGE_KEY_PATHS.reflection[1]) ||
       {}
