@@ -14,6 +14,7 @@ import StrategyPanel from "../components/StrategyPanel";
 import SimulationPanel from "../components/SimulationPanel";
 import DecisionPanel from "../components/DecisionPanel";
 import { buildOverviewViewModel } from "../utils/overviewAdapter";
+import ActionCenterSignals from "../components/ActionCenterSignals";
 import "../styles/theme.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? "/api" : "http://localhost:8000");
@@ -30,12 +31,154 @@ function EmptyWorkspace({ message, onRetry }) {
   );
 }
 
+const T = {
+  card: "#ffffff",
+  cardAlt: "#f4f7f1",
+  border: "#d7e2d8",
+  primary: "#2f6f4f",
+  primarySoft: "#e6f2ec",
+  text: "#1a2e22",
+  muted: "#5a7a65",
+  badge: "#c8e6d0",
+};
+
+function StatusBadge({ status }) {
+  const color = status === "complete" ? T.primary : status === "in-progress" ? "#b08b00" : "#888";
+  const bg = status === "complete" ? T.primarySoft : status === "in-progress" ? "#fff8dc" : "#f5f5f5";
+  return (
+    <span style={{ background: bg, color, border: `1px solid ${color}40`, borderRadius: 4, padding: "2px 8px", fontSize: "0.75rem", fontWeight: 600, textTransform: "uppercase" }}>
+      {String(status || "pending").replace("_", " ")}
+    </span>
+  );
+}
+
+function ActionCenterView({ viewModel, loading, error, onRetry }) {
+  const statusValues = Object.values(viewModel.statusByStage || {});
+  const completedCount = statusValues.filter((s) => s === "complete").length;
+  const inProgressCount = statusValues.filter((s) => s === "in-progress").length;
+  const blockedCount = statusValues.filter((s) => s === "blocked").length;
+
+  const signals = viewModel.stageDetails?.signal_detection?.signals || [];
+  const decision = viewModel.stageDetails?.decision;
+
+  if (loading) return <EmptyWorkspace message="Loading pipeline data..." onRetry={onRetry} />;
+  if (error) return <EmptyWorkspace message={error} onRetry={onRetry} />;
+
+  return (
+    <div className="fade-in-up" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Operational Metrics */}
+      <div className="card" style={{ padding: 24 }}>
+        <h3 style={{ margin: "0 0 16px", color: T.text, fontSize: "1rem", fontWeight: 700 }}>Operational Metrics</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+          {[
+            { label: "Total Decisions", value: viewModel.totalDecisions },
+            { label: "Latest Decision ID", value: viewModel.latestDecisionId || "N/A" },
+            { label: "Completed Stages", value: completedCount },
+            { label: "In Progress", value: inProgressCount },
+            { label: "Blocked Stages", value: blockedCount },
+            { label: "Execution Mode", value: viewModel.executionMode || "N/A" },
+          ].map(({ label, value }) => (
+            <div key={label} style={{ background: T.cardAlt, border: `1px solid ${T.border}`, borderRadius: 8, padding: "14px 16px" }}>
+              <div style={{ fontSize: "0.72rem", color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{label}</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: 700, color: T.primary }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Signal List */}
+      <div className="card" style={{ padding: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <h3 style={{ margin: 0, color: T.text, fontSize: "1rem", fontWeight: 700 }}>
+            Detected Signals
+          </h3>
+          <span style={{
+            background: signals.length > 0 ? "#fdecea" : T.primarySoft,
+            color: signals.length > 0 ? "#b02020" : T.primary,
+            border: `1px solid ${signals.length > 0 ? "#f5c6cb" : T.border}`,
+            borderRadius: 20, padding: "3px 12px", fontSize: "0.75rem", fontWeight: 700,
+          }}>
+            {signals.length} signal{signals.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+        <ActionCenterSignals signals={signals} decision={decision} />
+      </div>
+
+      {/* Pipeline Stage Status */}
+      <div className="card" style={{ padding: 24 }}>
+        <h3 style={{ margin: "0 0 16px", color: T.text, fontSize: "1rem", fontWeight: 700 }}>Pipeline Stage Status</h3>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {(viewModel.pipelineStages || []).map((stage) => {
+            const status = viewModel.statusByStage?.[stage.id];
+            const details = viewModel.stageDetails?.[stage.id] || {};
+            const metricKeys = Object.keys(details).filter((k) => typeof details[k] !== "object" && typeof details[k] !== "undefined").slice(0, 2);
+            return (
+              <div key={stage.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: T.cardAlt, borderRadius: 7, border: `1px solid ${T.border}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontWeight: 600, color: T.text, fontSize: "0.9rem" }}>{stage.label}</span>
+                  {metricKeys.map((k) => (
+                    <span key={k} style={{ fontSize: "0.75rem", color: T.muted }}>
+                      {k}: <strong style={{ color: T.text }}>{String(details[k])}</strong>
+                    </span>
+                  ))}
+                </div>
+                <StatusBadge status={status} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Latest Decision Summary */}
+      {viewModel.stageDetails?.decision ? (
+        <div className="card" style={{ padding: 24 }}>
+          <h3 style={{ margin: "0 0 16px", color: T.text, fontSize: "1rem", fontWeight: 700 }}>Latest Decision Summary</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
+            {Object.entries(viewModel.stageDetails.decision)
+              .filter(([, v]) => typeof v !== "object" && v !== undefined && v !== null)
+              .slice(0, 6)
+              .map(([k, v]) => (
+                <div key={k} style={{ background: T.cardAlt, border: `1px solid ${T.border}`, borderRadius: 8, padding: "12px 16px" }}>
+                  <div style={{ fontSize: "0.72rem", color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{k.replace(/_/g, " ")}</div>
+                  <div style={{ fontSize: "0.95rem", fontWeight: 600, color: T.text }}>{String(v)}</div>
+                </div>
+              ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Reflection Summary */}
+      {viewModel.stageDetails?.reflection?.evaluation ? (
+        <div className="card" style={{ padding: 24 }}>
+          <h3 style={{ margin: "0 0 16px", color: T.text, fontSize: "1rem", fontWeight: 700 }}>Reflection Summary</h3>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 12 }}>
+            <span style={{ fontSize: "2rem", fontWeight: 800, color: T.primary }}>{viewModel.stageDetails.reflection.evaluation.score ?? "—"}</span>
+            <div>
+              <div style={{ fontSize: "0.8rem", color: T.muted }}>Readiness Score</div>
+              <StatusBadge status={viewModel.stageDetails.reflection.evaluation.status} />
+            </div>
+            <div style={{ flex: 1, background: T.border, borderRadius: 4, height: 8, overflow: "hidden" }}>
+              <div style={{ width: `${viewModel.stageDetails.reflection.evaluation.score ?? 0}%`, background: T.primary, height: "100%", borderRadius: 4 }} />
+            </div>
+          </div>
+          {viewModel.stageDetails.reflection.learning?.summary ? (
+            <p style={{ margin: 0, color: T.muted, fontSize: "0.88rem", lineHeight: 1.5 }}>
+              {viewModel.stageDetails.reflection.learning.summary}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function ArosUI() {
   const [overview, setOverview] = useState(null);
   const [selectedStage, setSelectedStage] = useState("ingestion");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [operatorAction, setOperatorAction] = useState("");
+  const [activeTab, setActiveTab] = useState("action-center");
 
   const viewModel = useMemo(() => buildOverviewViewModel(overview), [overview]);
 
@@ -110,12 +253,8 @@ export default function ArosUI() {
     <Layout
       sidebar={
         <Sidebar
-          selected={selectedStage}
-          setSelected={setSelectedStage}
-          stages={viewModel.pipelineStages}
-          statusByStage={viewModel.statusByStage}
-          totalDecisions={viewModel.totalDecisions}
-          latestDecisionId={viewModel.latestDecisionId}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
         />
       }
     >
@@ -133,89 +272,100 @@ export default function ArosUI() {
           </button>
         </header>
 
-        <Pipeline
-          stages={viewModel.pipelineStages}
-          current={selectedStage}
-          statusByStage={viewModel.statusByStage}
-          onSelect={setSelectedStage}
-        />
-
-        {loading ? (
-          <EmptyWorkspace message="Loading /agents/overview from local API..." onRetry={handleRefresh} />
-        ) : null}
-
-        {!loading && error ? <EmptyWorkspace message={error} onRetry={handleRefresh} /> : null}
-
-        {!loading && !error ? (
+        {activeTab === "action-center" ? (
+          <ActionCenterView
+            viewModel={viewModel}
+            loading={loading}
+            error={error}
+            onRetry={handleRefresh}
+          />
+        ) : (
           <>
-            {operatorAction ? <p className="operator-feedback">{operatorAction}</p> : null}
+            <Pipeline
+              stages={viewModel.pipelineStages}
+              current={selectedStage}
+              statusByStage={viewModel.statusByStage}
+              onSelect={setSelectedStage}
+            />
 
-            <div className={selectedStage === "ingestion" || selectedStage === "signal_detection" || selectedStage === "diagnosis" || selectedStage === "strategy" || selectedStage === "simulation" || selectedStage === "decision" || selectedStage === "execution" || selectedStage === "reflection" ? "workspace-full" : "workspace-grid"}>
-              <section className="workspace-primary">
-                {selectedStage === "ingestion" ? (
-                  <IngestionPanel details={viewModel.stageDetails.ingestion} />
-                ) : selectedStage === "signal_detection" ? (
-                  <SignalDetectionPanel details={viewModel.stageDetails.signal_detection} />
-                ) : selectedStage === "diagnosis" ? (
-                  <DiagnosisPanel
-                    details={viewModel.stageDetails.diagnosis}
-                    liveSignals={viewModel.stageDetails.signal_detection?.signals || []}
-                  />
-                ) : selectedStage === "strategy" ? (
-                  <StrategyPanel
-                    details={viewModel.stageDetails.strategy}
-                    diagnosis={viewModel.stageDetails.diagnosis}
-                  />
-                ) : selectedStage === "simulation" ? (
-                  <SimulationPanel
-                    details={viewModel.stageDetails.simulation}
-                    strategy={viewModel.stageDetails.strategy}
-                  />
-                ) : selectedStage === "decision" ? (
-                  <DecisionPanel
-                    details={viewModel.stageDetails.decision}
-                    simulation={viewModel.stageDetails.simulation}
-                  />
-                ) : selectedStage === "execution" ? (
-                  <ExecutionPanel
-                    execution={viewModel.stageDetails.execution}
-                    executionMode={viewModel.executionMode}
-                    decision={viewModel.stageDetails.decision}
-                  />
-                ) : selectedStage === "reflection" ? (
-                  <ReflectionPanel
-                    reflection={viewModel.stageDetails.reflection}
-                    execution={viewModel.stageDetails.execution}
-                    decision={viewModel.stageDetails.decision}
-                    simulation={viewModel.stageDetails.simulation}
-                  />
-                ) : (
-                  <AgentPanel
-                    stage={selectedStage}
-                    stageMeta={viewModel.stageMeta}
-                    details={selectedDetails}
-                    tableSummaries={viewModel.tableSummaries}
-                  />
-                )}
-                <ChartCard trendSeries={viewModel.trendSeries} simulationSeries={viewModel.simulationSeries} />
-              </section>
+            {loading ? (
+              <EmptyWorkspace message="Loading /agents/overview from local API..." onRetry={handleRefresh} />
+            ) : null}
 
-              {selectedStage !== "ingestion" && selectedStage !== "signal_detection" && selectedStage !== "diagnosis" && selectedStage !== "strategy" && selectedStage !== "simulation" && selectedStage !== "decision" && selectedStage !== "execution" && selectedStage !== "reflection" && (
-                <section className="workspace-secondary">
-                  <DecisionCard decision={viewModel.stageDetails.decision} onAction={handleDecisionAction} />
-                  <ExecutionPanel
-                    execution={viewModel.stageDetails.execution}
-                    executionMode={viewModel.executionMode}
-                  />
-                  <ReflectionPanel
-                    reflection={viewModel.stageDetails.reflection}
-                    simulation={viewModel.stageDetails.simulation}
-                  />
-                </section>
-              )}
-            </div>
+            {!loading && error ? <EmptyWorkspace message={error} onRetry={handleRefresh} /> : null}
+
+            {!loading && !error ? (
+              <>
+                {operatorAction ? <p className="operator-feedback">{operatorAction}</p> : null}
+
+                <div className={selectedStage === "ingestion" || selectedStage === "signal_detection" || selectedStage === "diagnosis" || selectedStage === "strategy" || selectedStage === "simulation" || selectedStage === "decision" || selectedStage === "execution" || selectedStage === "reflection" ? "workspace-full" : "workspace-grid"}>
+                  <section className="workspace-primary">
+                    {selectedStage === "ingestion" ? (
+                      <IngestionPanel details={viewModel.stageDetails.ingestion} />
+                    ) : selectedStage === "signal_detection" ? (
+                      <SignalDetectionPanel details={viewModel.stageDetails.signal_detection} />
+                    ) : selectedStage === "diagnosis" ? (
+                      <DiagnosisPanel
+                        details={viewModel.stageDetails.diagnosis}
+                        liveSignals={viewModel.stageDetails.signal_detection?.signals || []}
+                      />
+                    ) : selectedStage === "strategy" ? (
+                      <StrategyPanel
+                        details={viewModel.stageDetails.strategy}
+                        diagnosis={viewModel.stageDetails.diagnosis}
+                      />
+                    ) : selectedStage === "simulation" ? (
+                      <SimulationPanel
+                        details={viewModel.stageDetails.simulation}
+                        strategy={viewModel.stageDetails.strategy}
+                      />
+                    ) : selectedStage === "decision" ? (
+                      <DecisionPanel
+                        details={viewModel.stageDetails.decision}
+                        simulation={viewModel.stageDetails.simulation}
+                      />
+                    ) : selectedStage === "execution" ? (
+                      <ExecutionPanel
+                        execution={viewModel.stageDetails.execution}
+                        executionMode={viewModel.executionMode}
+                        decision={viewModel.stageDetails.decision}
+                      />
+                    ) : selectedStage === "reflection" ? (
+                      <ReflectionPanel
+                        reflection={viewModel.stageDetails.reflection}
+                        execution={viewModel.stageDetails.execution}
+                        decision={viewModel.stageDetails.decision}
+                        simulation={viewModel.stageDetails.simulation}
+                      />
+                    ) : (
+                      <AgentPanel
+                        stage={selectedStage}
+                        stageMeta={viewModel.stageMeta}
+                        details={selectedDetails}
+                        tableSummaries={viewModel.tableSummaries}
+                      />
+                    )}
+                    <ChartCard trendSeries={viewModel.trendSeries} simulationSeries={viewModel.simulationSeries} />
+                  </section>
+
+                  {selectedStage !== "ingestion" && selectedStage !== "signal_detection" && selectedStage !== "diagnosis" && selectedStage !== "strategy" && selectedStage !== "simulation" && selectedStage !== "decision" && selectedStage !== "execution" && selectedStage !== "reflection" && (
+                    <section className="workspace-secondary">
+                      <DecisionCard decision={viewModel.stageDetails.decision} onAction={handleDecisionAction} />
+                      <ExecutionPanel
+                        execution={viewModel.stageDetails.execution}
+                        executionMode={viewModel.executionMode}
+                      />
+                      <ReflectionPanel
+                        reflection={viewModel.stageDetails.reflection}
+                        simulation={viewModel.stageDetails.simulation}
+                      />
+                    </section>
+                  )}
+                </div>
+              </>
+            ) : null}
           </>
-        ) : null}
+        )}
       </div>
     </Layout>
   );

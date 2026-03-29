@@ -101,6 +101,57 @@ p {
   gap: 20px;
 }
 
+.sidebar-section {
+  display: grid;
+  gap: 10px;
+}
+
+.sidebar-tabs {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.sidebar-tab {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text-main);
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sidebar-tab:hover,
+.sidebar-tab.active {
+  border-color: #a0bfab;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.sidebar-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.sidebar-section-header h3 {
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.sidebar-section-header span {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
 .brand-block h1 {
   margin-top: 8px;
   font-size: 24px;
@@ -110,6 +161,10 @@ p {
 .sidebar-metrics {
   display: grid;
   gap: 10px;
+}
+
+.action-center-grid .metric-pill {
+  border-radius: 12px;
 }
 
 .metric-pill {
