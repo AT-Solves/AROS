@@ -286,6 +286,24 @@ p {
   gap: 18px;
 }
 
+.workspace-full {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+
+/* Signal Detection source breakdown — collapse to 2-3 cols on narrow widths */
+@media (max-width: 900px) {
+  .signal-source-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+}
+@media (max-width: 600px) {
+  .signal-source-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
 .workspace-primary,
 .workspace-secondary {
   display: grid;

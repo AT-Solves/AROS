@@ -23,7 +23,7 @@ from agents.orchestrator.agent import Orchestrator
 # ─────────────────────────────────────────────
 def run_pipeline():
 
-    print("\n=== 🚀 AROS PIPELINE (ORCHESTRATED) START ===\n")
+    print("\n=== AROS PIPELINE (ORCHESTRATED) START ===\n")
 
     orchestrator = Orchestrator()
 
@@ -41,7 +41,7 @@ def run_pipeline():
     # Run full orchestrated workflow
     final_context = orchestrator.run(agents)
 
-    print("\n=== ✅ FINAL OUTPUT ===\n")
+    print("\n=== FINAL OUTPUT ===\n")
     print(json.dumps(final_context, indent=2))
 
     return final_context

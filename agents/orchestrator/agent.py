@@ -104,11 +104,11 @@ class Orchestrator:
                 context = {**context, **agents["reflection"](context)}
 
             elif stage == "investigate":
-                print("⚠️ Investigation required. Stopping.")
+                print("[!] Investigation required. Stopping.")
                 break
 
             elif stage == "stop":
-                print("✅ Workflow complete.")
+                print("[OK] Workflow complete.")
                 break
 
             stage = self.next_step(stage, context)

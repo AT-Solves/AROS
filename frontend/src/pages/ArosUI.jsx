@@ -7,6 +7,8 @@ import ChartCard from "../components/ChartCard";
 import DecisionCard from "../components/DecisionCard";
 import ExecutionPanel from "../components/ExecutionPanel";
 import ReflectionPanel from "../components/ReflectionPanel";
+import IngestionPanel from "../components/IngestionPanel";
+import SignalDetectionPanel from "../components/SignalDetectionPanel";
 import { buildOverviewViewModel } from "../utils/overviewAdapter";
 import "../styles/theme.css";
 
@@ -144,28 +146,36 @@ export default function ArosUI() {
           <>
             {operatorAction ? <p className="operator-feedback">{operatorAction}</p> : null}
 
-            <div className="workspace-grid">
+            <div className={selectedStage === "ingestion" || selectedStage === "signal_detection" ? "workspace-full" : "workspace-grid"}>
               <section className="workspace-primary">
-                <AgentPanel
-                  stage={selectedStage}
-                  stageMeta={viewModel.stageMeta}
-                  details={selectedDetails}
-                  tableSummaries={viewModel.tableSummaries}
-                />
+                {selectedStage === "ingestion" ? (
+                  <IngestionPanel details={viewModel.stageDetails.ingestion} />
+                ) : selectedStage === "signal_detection" ? (
+                  <SignalDetectionPanel details={viewModel.stageDetails.signal_detection} />
+                ) : (
+                  <AgentPanel
+                    stage={selectedStage}
+                    stageMeta={viewModel.stageMeta}
+                    details={selectedDetails}
+                    tableSummaries={viewModel.tableSummaries}
+                  />
+                )}
                 <ChartCard trendSeries={viewModel.trendSeries} simulationSeries={viewModel.simulationSeries} />
               </section>
 
-              <section className="workspace-secondary">
-                <DecisionCard decision={viewModel.stageDetails.decision} onAction={handleDecisionAction} />
-                <ExecutionPanel
-                  execution={viewModel.stageDetails.execution}
-                  executionMode={viewModel.executionMode}
-                />
-                <ReflectionPanel
-                  reflection={viewModel.stageDetails.reflection}
-                  simulation={viewModel.stageDetails.simulation}
-                />
-              </section>
+              {selectedStage !== "ingestion" && selectedStage !== "signal_detection" && (
+                <section className="workspace-secondary">
+                  <DecisionCard decision={viewModel.stageDetails.decision} onAction={handleDecisionAction} />
+                  <ExecutionPanel
+                    execution={viewModel.stageDetails.execution}
+                    executionMode={viewModel.executionMode}
+                  />
+                  <ReflectionPanel
+                    reflection={viewModel.stageDetails.reflection}
+                    simulation={viewModel.stageDetails.simulation}
+                  />
+                </section>
+              )}
             </div>
           </>
         ) : null}

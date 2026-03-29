@@ -22,7 +22,7 @@ def safe_fetch_table(conn, table_name):
     try:
         return pd.read_sql(f"SELECT * FROM {table_name};", conn)
     except Exception as e:
-        print(f"⚠️ Skipping table {table_name}: {e}")
+        print(f"[!] Skipping table {table_name}: {e}")
         return pd.DataFrame()
 
 
@@ -208,7 +208,7 @@ def run_ingestion():
         return result
 
     finally:
-        conn.close() 
+        conn.close()
 
 
 # -------------------------------

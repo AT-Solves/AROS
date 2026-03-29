@@ -21,6 +21,8 @@ import uvicorn
 
 from pipeline.run_pipeline import run_pipeline
 from db.connection import get_db_manager, DatabaseConfig
+from agents.ingestion.aros_ingestion import run_ingestion
+from agents.signal_detection.agent import detect_signals
 
 # ─── FastAPI App ────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -254,6 +256,19 @@ async def agents_overview():
         latest_data = latest or {}
 
         table_summaries = db_manager.get_overview_table_summaries()
+
+        # Run ingestion to get live KPI / domain metrics for the ingestion panel
+        try:
+            ingestion_details = run_ingestion()
+        except Exception:
+            ingestion_details = {}
+
+        # Run signal detection live against fresh ingestion data
+        try:
+            signal_details = detect_signals(ingestion_details) if ingestion_details else {}
+        except Exception:
+            signal_details = {}
+
         return {
             "total_decisions": len(decisions),
             "status_counts": status_counts,
@@ -266,21 +281,22 @@ async def agents_overview():
                     "title": "Ingestion Agent",
                     "description": "Pulls KPI and baseline data from PostgreSQL to seed the agent pipeline.",
                     "primary_metrics": {
-                        "decisions_analyzed": len(decisions),
-                        "latest_status": latest_data.get("status", "N/A"),
+                        "records_processed": (ingestion_details.get("meta") or {}).get("records_processed", 0),
+                        "current_revenue": (ingestion_details.get("kpi") or {}).get("current", {}).get("revenue", 0),
+                        "payment_failure_rate": (ingestion_details.get("kpi") or {}).get("current", {}).get("payment_failure_rate", 0),
                     },
-                    "details": latest_data.get("signal_detection") or {},
+                    "details": ingestion_details,
                 },
                 {
                     "id": "signal_detection",
                     "title": "Signal Detection Agent",
                     "description": "Detects anomalies and signals from ingested KPIs, then reports severity and confidence.",
                     "primary_metrics": {
-                        "severity": (latest_data.get("signal_detection") or {}).get("severity", "N/A"),
-                        "signal_count": len((latest_data.get("signal_detection") or {}).get("signals", [])),
-                        "confidence": (latest_data.get("signal_detection") or {}).get("confidence", 0),
+                        "severity": signal_details.get("severity", "N/A"),
+                        "signal_count": signal_details.get("signal_count", 0),
+                        "confidence": signal_details.get("confidence", 0),
                     },
-                    "details": latest_data.get("signal_detection") or {},
+                    "details": signal_details,
                 },
                 {
                     "id": "diagnosis",

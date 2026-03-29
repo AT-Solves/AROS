@@ -101,7 +101,7 @@ const STAGE_META = {
 };
 
 const STAGE_KEY_PATHS = {
-  ingestion: ["signal_detection"],
+  ingestion: null,
   signal_detection: ["signal_detection"],
   diagnosis: ["diagnosis"],
   strategy: ["strategy"],
@@ -187,9 +187,10 @@ function normalizeExecutionStatus(execution, decision) {
   return "pending";
 }
 
-function buildTrendSeries(latestDecision) {
-  const previous = latestDecision?.kpi?.previous || {};
-  const current = latestDecision?.kpi?.current || {};
+function buildTrendSeries(latestDecision, ingestionDetails) {
+  const kpi = ingestionDetails?.kpi || latestDecision?.kpi || {};
+  const previous = kpi.previous || {};
+  const current = kpi.current || {};
 
   const rows = [
     {
@@ -300,11 +301,13 @@ export function buildOverviewViewModel(overview) {
     getByPath(latestDecision, STAGE_KEY_PATHS.decision[0]) ||
     getAgentDetails(overview, "decision");
 
+  const ingestionAgentDetails = getAgentDetails(overview, "ingestion");
+
   const stageDetails = {
-    ingestion: getByPath(latestDecision, STAGE_KEY_PATHS.ingestion[0]) || getAgentDetails(overview, "ingestion"),
+    ingestion: ingestionAgentDetails,
     signal_detection:
-      getByPath(latestDecision, STAGE_KEY_PATHS.signal_detection[0]) ||
-      getAgentDetails(overview, "signal_detection"),
+      getAgentDetails(overview, "signal_detection") ||
+      getByPath(latestDecision, STAGE_KEY_PATHS.signal_detection[0]),
     diagnosis: getByPath(latestDecision, STAGE_KEY_PATHS.diagnosis[0]) || getAgentDetails(overview, "diagnosis"),
     strategy: getByPath(latestDecision, STAGE_KEY_PATHS.strategy[0]) || getAgentDetails(overview, "strategy"),
     simulation: getByPath(latestDecision, STAGE_KEY_PATHS.simulation[0]) || getAgentDetails(overview, "simulation"),
@@ -336,7 +339,7 @@ export function buildOverviewViewModel(overview) {
     stageDetails,
     statusByStage,
     currentStage: getCurrentStage(statusByStage),
-    trendSeries: buildTrendSeries(latestDecision),
+    trendSeries: buildTrendSeries(latestDecision, ingestionAgentDetails),
     simulationSeries: buildSimulationSeries(stageDetails.simulation, stageDetails.strategy),
     executionMode: normalizeExecutionStatus(stageDetails.execution, stageDetails.decision),
     pipelineStages: PIPELINE_STAGES,
