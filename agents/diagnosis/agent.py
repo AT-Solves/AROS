@@ -1,187 +1,150 @@
-# AROS – Diagnosis Agent (Improved Reasoning + Conflict Handling)
+# AROS – Diagnosis Agent (All-Signal Coverage)
 
 import json
 import sys
-from typing import Dict, Any
-from groq import Groq
-from config import CONFIG
-
-client = Groq(api_key=CONFIG["groq"]["api_key"])
+from datetime import datetime, timezone
+from typing import Dict, Any, List
 
 
-# ─────────────────────────────────────────────
-# PRE-ANALYSIS (STRUCTURED HINTS)
-# ─────────────────────────────────────────────
-def build_context_insights(data: Dict[str, Any]) -> Dict[str, Any]:
+def _pick_metric(signal: Dict[str, Any]) -> str:
+    return signal.get("metric") or signal.get("affected_metric") or "unknown_metric"
 
-    current = data.get("kpi", {}).get("current", {})
-    previous = data.get("kpi", {}).get("previous", {})
 
-    insights = {
-        "revenue_growth": current.get("revenue", 0) > previous.get("revenue", 0),
-        "latency_increase": current.get("latency_ms", 0) > previous.get("latency_ms", 0),
-        "conversion_drop": current.get("conversion_rate", 0) < previous.get("conversion_rate", 0),
-        "high_payment_failure": current.get("payment_failure_rate", 0) > 15,
-        "high_abandonment": current.get("cart_abandonment_rate", 0) > 60,
+def _format_evidence(signal: Dict[str, Any]) -> List[str]:
+    metric = _pick_metric(signal)
+    current = signal.get("current_value", "N/A")
+    previous = signal.get("previous_value", "N/A")
+    change = signal.get("change_pct", "N/A")
+
+    return [
+        f"Signal type: {signal.get('type', 'unknown')}",
+        f"Metric: {metric}",
+        f"Current value: {current}",
+        f"Previous value: {previous}",
+        f"Change: {change}",
+    ]
+
+
+def _signal_to_cause(signal: Dict[str, Any]) -> Dict[str, Any]:
+    signal_type = signal.get("type", "unknown")
+    metric = _pick_metric(signal)
+    sev = signal.get("severity", "MEDIUM")
+    conf = signal.get("confidence", 0.6)
+
+    cause_map = {
+        "latency_spike": "Severe Performance Degradation (High Latency)",
+        "user_latency_high": "User Experience Latency Friction",
+        "payment_failures_high": "Payment Gateway Outage or Fraud Detection Triggered",
+        "cart_abandonment_high": "Checkout Funnel Friction and Cart Drop-off",
+        "user_drop_off_high": "High User Drop-off During Session Journey",
+        "order_conversion_low": "Order Conversion Breakdown in Checkout Journey",
+        "revenue_drop": "Revenue Contraction Driven by Conversion and Checkout Issues",
+        "conversion_drop": "Conversion Funnel Performance Deterioration",
     }
-
-    return insights
-
-
-# ─────────────────────────────────────────────
-# PROMPT
-# ─────────────────────────────────────────────
-def build_prompt(data: Dict[str, Any], insights: Dict[str, Any]) -> str:
-
-    return f"""
-You are an expert E-commerce Diagnosis Agent.
-
-Your goal: Identify root causes of revenue/system anomalies using data + signals.
-
-INPUT DATA:
-{json.dumps(data, indent=2)}
-
-DERIVED INSIGHTS:
-{json.dumps(insights, indent=2)}
-
----
-
-IMPORTANT REASONING RULES:
-
-1. If revenue increases BUT latency and failures increase:
-   → Likely system scaling issue or infrastructure bottleneck
-
-2. If cart abandonment is high:
-   → UX, pricing, or performance issue
-
-3. If payment failures are high:
-   → payment gateway or transaction system issue
-
-4. If signals conflict:
-   → Provide BEST POSSIBLE explanation (do NOT say unknown immediately)
-
-5. Only mark uncertainty = true if NO reasonable hypothesis exists
-
----
-
-TASK:
-
-- Identify root causes
-- Correlate signals + metrics
-- Provide primary cause
-- Avoid vague answers
-
----
-
-OUTPUT FORMAT (STRICT JSON):
-
-{{
-  "root_causes": ["..."],
-  "primary_cause": "...",
-  "confidence": 0.0,
-  "uncertainty": false
-}}
-"""
-
-
-# ─────────────────────────────────────────────
-# LLM CALL
-# ─────────────────────────────────────────────
-def call_llm(prompt: str) -> Dict[str, Any]:
-
-    try:
-        response = client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=[
-                {"role": "system", "content": "You are a precise diagnosis system."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.2,
-        )
-
-        content = response.choices[0].message.content
-        return json.loads(content)
-
-    except Exception as e:
-        return {
-            "root_causes": ["llm_error"],
-            "primary_cause": "error",
-            "confidence": 0.0,
-            "uncertainty": True,
-            "error": str(e)
-        }
-
-
-# ─────────────────────────────────────────────
-# FALLBACK LOGIC (VERY IMPORTANT)
-# ─────────────────────────────────────────────
-def fallback_reasoning(insights: Dict[str, Any]) -> Dict[str, Any]:
-
-    # Handle scaling contradiction
-    if insights["revenue_growth"] and insights["latency_increase"]:
-        return {
-            "root_causes": ["traffic surge causing infrastructure bottleneck"],
-            "primary_cause": "scaling_issue",
-            "confidence": 0.7,
-            "uncertainty": False
-        }
-
-    # Payment issue
-    if insights["high_payment_failure"]:
-        return {
-            "root_causes": ["payment gateway instability"],
-            "primary_cause": "payment_failure",
-            "confidence": 0.8,
-            "uncertainty": False
-        }
 
     return {
-        "root_causes": [],
-        "primary_cause": "unknown",
-        "confidence": 0.3,
-        "uncertainty": True
+        "cause": cause_map.get(signal_type, f"Anomaly linked to {signal_type}"),
+        "evidence": _format_evidence(signal),
+        "severity": sev,
+        "confidence": conf,
+        "affected_metric": metric,
+        "signal_type": signal_type,
     }
 
 
-# ─────────────────────────────────────────────
-# MAIN FUNCTION
-# ─────────────────────────────────────────────
+def _severity_rank(value: str) -> int:
+    return {"LOW": 1, "MEDIUM": 2, "HIGH": 3}.get(value, 1)
+
+
+def _derive_fraud_score(signals: List[Dict[str, Any]]) -> float:
+    has_payment = any(s.get("type") == "payment_failures_high" for s in signals)
+    has_dropoff = any(s.get("type") in ("cart_abandonment_high", "user_drop_off_high") for s in signals)
+    has_latency = any(s.get("type") in ("latency_spike", "user_latency_high") for s in signals)
+
+    score = 0.2
+    if has_payment:
+        score += 0.35
+    if has_dropoff:
+        score += 0.2
+    if has_latency:
+        score += 0.1
+
+    return round(min(0.95, score), 2)
+
+
+def _build_reasoning(signals: List[Dict[str, Any]], diagnosed_causes: List[Dict[str, Any]], primary: str, fraud_score: float) -> str:
+    if not signals:
+        return "No active signals detected. Diagnosis remains in monitoring mode."
+
+    signal_types = ", ".join(s.get("type", "unknown") for s in signals)
+    cause_names = ", ".join(c.get("cause", "unknown") for c in diagnosed_causes)
+    return (
+        f"Analyzed {len(signals)} signals: {signal_types}. "
+        f"Derived {len(diagnosed_causes)} causes. "
+        f"Primary cause: {primary}. "
+        f"Fraud risk score: {fraud_score:.2f}. "
+        f"Cause set: {cause_names}."
+    )
+
+
 def diagnose(data: Dict[str, Any]) -> Dict[str, Any]:
+    signals = data.get("signals", []) or []
+    diagnosed_causes = [_signal_to_cause(sig) for sig in signals]
 
-    insights = build_context_insights(data)
-    prompt = build_prompt(data, insights)
+    if diagnosed_causes:
+        primary_cause_obj = max(
+            diagnosed_causes,
+            key=lambda c: (_severity_rank(c.get("severity", "LOW")), c.get("confidence", 0)),
+        )
+        primary_cause = primary_cause_obj.get("cause", "unknown")
+        confidence = round(
+            sum(c.get("confidence", 0) for c in diagnosed_causes) / len(diagnosed_causes),
+            2,
+        )
+        uncertainty = False
+    else:
+        primary_cause = "unknown"
+        confidence = 0.3
+        uncertainty = True
 
-    llm_output = call_llm(prompt)
+    fraud_score = _derive_fraud_score(signals)
 
-    # Use fallback if LLM uncertain
-    if llm_output.get("uncertainty", True):
-        fallback = fallback_reasoning(insights)
-        llm_output = fallback
+    diagnosis_obj = {
+        "root_causes": [c.get("cause") for c in diagnosed_causes],
+        "primary_cause": primary_cause,
+        "confidence": confidence,
+        "uncertainty": uncertainty,
+    }
 
     result = {
         "agent": "DiagnosisAgent",
-        "signals": data.get("signals", []),
-        "signal_count": len(data.get("signals", [])),
+        "signals": signals,
+        "signal_count": len(signals),
         "severity": data.get("severity", "LOW"),
-        "confidence": llm_output.get("confidence", 0.5),
-        "requires_attention": True,
-        "diagnosis": llm_output,
+        "confidence": confidence,
+        "requires_attention": len(signals) > 0,
+        "diagnosis": diagnosis_obj,
+        # keep legacy keys for compatibility with existing DB-shaped UI
+        "diagnosed_causes": diagnosed_causes,
+        "primary_cause": primary_cause,
+        "fraud_score": fraud_score,
+        "reasoning": _build_reasoning(signals, diagnosed_causes, primary_cause, fraud_score),
         "next_agent": "StrategyAgent",
         "log": {
             "status": "completed",
-            "uncertainty": llm_output.get("uncertainty", False)
-        }
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "signals_analyzed": len(signals),
+            "causes_identified": len(diagnosed_causes),
+            "uncertainty": uncertainty,
+        },
     }
 
-    print("\n=== DIAGNOSIS OUTPUT (IMPROVED) ===\n")
+    print("\n=== DIAGNOSIS OUTPUT (ALL-SIGNAL) ===\n")
     print(json.dumps(result, indent=2))
 
     return result
 
 
-# ─────────────────────────────────────────────
-# ENTRY POINT
-# ─────────────────────────────────────────────
 if __name__ == "__main__":
     raw = sys.stdin.read() or "{}"
     data = json.loads(raw)

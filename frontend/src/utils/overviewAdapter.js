@@ -308,7 +308,9 @@ export function buildOverviewViewModel(overview) {
     signal_detection:
       getAgentDetails(overview, "signal_detection") ||
       getByPath(latestDecision, STAGE_KEY_PATHS.signal_detection[0]),
-    diagnosis: getByPath(latestDecision, STAGE_KEY_PATHS.diagnosis[0]) || getAgentDetails(overview, "diagnosis"),
+    diagnosis:
+      getAgentDetails(overview, "diagnosis") ||
+      getByPath(latestDecision, STAGE_KEY_PATHS.diagnosis[0]),
     strategy: getByPath(latestDecision, STAGE_KEY_PATHS.strategy[0]) || getAgentDetails(overview, "strategy"),
     simulation: getByPath(latestDecision, STAGE_KEY_PATHS.simulation[0]) || getAgentDetails(overview, "simulation"),
     decision: normalizeDecisionDetails(rawDecision, latestDecision),

@@ -23,6 +23,7 @@ from pipeline.run_pipeline import run_pipeline
 from db.connection import get_db_manager, DatabaseConfig
 from agents.ingestion.aros_ingestion import run_ingestion
 from agents.signal_detection.agent import detect_signals
+from agents.diagnosis.agent import diagnose
 
 # ─── FastAPI App ────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -269,6 +270,13 @@ async def agents_overview():
         except Exception:
             signal_details = {}
 
+        # Run diagnosis live using the same context shape as orchestrated pipeline
+        try:
+            diagnosis_input = {**ingestion_details, **signal_details} if ingestion_details else signal_details
+            diagnosis_details = diagnose(diagnosis_input) if diagnosis_input else {}
+        except Exception:
+            diagnosis_details = {}
+
         return {
             "total_decisions": len(decisions),
             "status_counts": status_counts,
@@ -303,10 +311,13 @@ async def agents_overview():
                     "title": "Diagnosis Agent",
                     "description": "Analyzes root causes and risk drivers for the detected signals.",
                     "primary_metrics": {
-                        "causes": len((latest_data.get("diagnosis") or {}).get("diagnosed_causes", [])),
-                        "fraud_score": (latest_data.get("diagnosis") or {}).get("fraud_score", 0),
+                        "causes": len(
+                            diagnosis_details.get("diagnosed_causes")
+                            or diagnosis_details.get("diagnosis", {}).get("root_causes", [])
+                        ),
+                        "fraud_score": diagnosis_details.get("fraud_score", 0),
                     },
-                    "details": latest_data.get("diagnosis") or {},
+                    "details": diagnosis_details,
                 },
                 {
                     "id": "strategy",

@@ -9,6 +9,7 @@ import ExecutionPanel from "../components/ExecutionPanel";
 import ReflectionPanel from "../components/ReflectionPanel";
 import IngestionPanel from "../components/IngestionPanel";
 import SignalDetectionPanel from "../components/SignalDetectionPanel";
+import DiagnosisPanel from "../components/DiagnosisPanel";
 import { buildOverviewViewModel } from "../utils/overviewAdapter";
 import "../styles/theme.css";
 
@@ -146,12 +147,17 @@ export default function ArosUI() {
           <>
             {operatorAction ? <p className="operator-feedback">{operatorAction}</p> : null}
 
-            <div className={selectedStage === "ingestion" || selectedStage === "signal_detection" ? "workspace-full" : "workspace-grid"}>
+            <div className={selectedStage === "ingestion" || selectedStage === "signal_detection" || selectedStage === "diagnosis" ? "workspace-full" : "workspace-grid"}>
               <section className="workspace-primary">
                 {selectedStage === "ingestion" ? (
                   <IngestionPanel details={viewModel.stageDetails.ingestion} />
                 ) : selectedStage === "signal_detection" ? (
                   <SignalDetectionPanel details={viewModel.stageDetails.signal_detection} />
+                ) : selectedStage === "diagnosis" ? (
+                  <DiagnosisPanel
+                    details={viewModel.stageDetails.diagnosis}
+                    liveSignals={viewModel.stageDetails.signal_detection?.signals || []}
+                  />
                 ) : (
                   <AgentPanel
                     stage={selectedStage}
@@ -163,7 +169,7 @@ export default function ArosUI() {
                 <ChartCard trendSeries={viewModel.trendSeries} simulationSeries={viewModel.simulationSeries} />
               </section>
 
-              {selectedStage !== "ingestion" && selectedStage !== "signal_detection" && (
+              {selectedStage !== "ingestion" && selectedStage !== "signal_detection" && selectedStage !== "diagnosis" && (
                 <section className="workspace-secondary">
                   <DecisionCard decision={viewModel.stageDetails.decision} onAction={handleDecisionAction} />
                   <ExecutionPanel
