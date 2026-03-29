@@ -16,7 +16,7 @@ export default function Sidebar({ activeTab, setActiveTab }) {
           className={`sidebar-tab ${activeTab === "action-center" ? "active" : ""}`}
           onClick={() => setActiveTab("action-center")}
         >
-          1. Action Center
+          Action Center
         </button>
         <button
           type="button"
@@ -25,7 +25,7 @@ export default function Sidebar({ activeTab, setActiveTab }) {
           className={`sidebar-tab ${activeTab === "workflow" ? "active" : ""}`}
           onClick={() => setActiveTab("workflow")}
         >
-          2. Workflow
+          Workflow
         </button>
       </div>
     </div>

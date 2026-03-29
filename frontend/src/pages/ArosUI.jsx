@@ -60,29 +60,99 @@ function ActionCenterView({ viewModel, loading, error, onRetry }) {
 
   const signals = viewModel.stageDetails?.signal_detection?.signals || [];
   const decision = viewModel.stageDetails?.decision;
+  const revenueInsights = viewModel.revenueInsights || {
+    potentialRevenueLeaked: 0,
+    potentialRevertable: 0,
+    alreadyReverted: 0,
+  };
+
+  const currency = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+
+  const metricCards = [
+    { label: "Total Decisions", value: viewModel.totalDecisions },
+    { label: "Latest Decision ID", value: viewModel.latestDecisionId || "N/A", compact: true },
+    { label: "Completed Stages", value: completedCount },
+    { label: "In Progress", value: inProgressCount },
+    { label: "Blocked Stages", value: blockedCount },
+    { label: "Execution Mode", value: viewModel.executionMode || "N/A" },
+  ];
 
   if (loading) return <EmptyWorkspace message="Loading pipeline data..." onRetry={onRetry} />;
   if (error) return <EmptyWorkspace message={error} onRetry={onRetry} />;
 
   return (
     <div className="fade-in-up" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Operational Metrics */}
-      <div className="card" style={{ padding: 24 }}>
-        <h3 style={{ margin: "0 0 16px", color: T.text, fontSize: "1rem", fontWeight: 700 }}>Operational Metrics</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
-          {[
-            { label: "Total Decisions", value: viewModel.totalDecisions },
-            { label: "Latest Decision ID", value: viewModel.latestDecisionId || "N/A" },
-            { label: "Completed Stages", value: completedCount },
-            { label: "In Progress", value: inProgressCount },
-            { label: "Blocked Stages", value: blockedCount },
-            { label: "Execution Mode", value: viewModel.executionMode || "N/A" },
-          ].map(({ label, value }) => (
-            <div key={label} style={{ background: T.cardAlt, border: `1px solid ${T.border}`, borderRadius: 8, padding: "14px 16px" }}>
-              <div style={{ fontSize: "0.72rem", color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{label}</div>
-              <div style={{ fontSize: "1.25rem", fontWeight: 700, color: T.primary }}>{value}</div>
+      {/* Primary Validation Scenario */}
+      <div
+        className="card"
+        style={{
+          padding: 24,
+          border: `2px solid ${T.primary}`,
+          background: "linear-gradient(180deg, #eff8f3 0%, #ffffff 100%)",
+          boxShadow: "0 8px 24px rgba(47, 111, 79, 0.12)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+          <h3 style={{ margin: 0, color: T.text, fontSize: "1.03rem", fontWeight: 800 }}>
+            Revenue Insights
+          </h3>
+          <span
+            style={{
+              border: `1px solid ${T.border}`,
+              borderRadius: 20,
+              background: T.primarySoft,
+              color: T.primary,
+              padding: "3px 11px",
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+            }}
+          >
+            High Priority
+          </span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 12 }}>
+          <div style={{ background: "#ffffff", border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
+            <div style={{ fontSize: "0.73rem", color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>
+              Potential Revenue Leaked
             </div>
-          ))}
+            <div style={{ fontSize: "1.15rem", fontWeight: 800, color: "#b02020", marginBottom: 5 }}>
+              {currency.format(revenueInsights.potentialRevenueLeaked || 0)}
+            </div>
+            <div style={{ fontSize: "0.74rem", color: T.muted, lineHeight: 1.35 }}>
+              previous revenue minus current revenue from ingestion KPI window
+            </div>
+          </div>
+
+          <div style={{ background: "#ffffff", border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
+            <div style={{ fontSize: "0.73rem", color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>
+              Potential Revertable
+            </div>
+            <div style={{ fontSize: "1.15rem", fontWeight: 800, color: "#b08b00", marginBottom: 5 }}>
+              {currency.format(revenueInsights.potentialRevertable || 0)}
+            </div>
+            <div style={{ fontSize: "0.74rem", color: T.muted, lineHeight: 1.35 }}>
+              best available among simulation median uplift, decision expected impact amount, or expected uplift percent applied to current revenue
+            </div>
+          </div>
+
+          <div style={{ background: "#ffffff", border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" }}>
+            <div style={{ fontSize: "0.73rem", color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>
+              Already Reverted
+            </div>
+            <div style={{ fontSize: "1.15rem", fontWeight: 800, color: T.primary, marginBottom: 5 }}>
+              {currency.format(revenueInsights.alreadyReverted || 0)}
+            </div>
+            <div style={{ fontSize: "0.74rem", color: T.muted, lineHeight: 1.35 }}>
+              execution actual revenue change (or actual outcome revenue fields when present)
+            </div>
+          </div>
         </div>
       </div>
 
@@ -101,7 +171,13 @@ function ActionCenterView({ viewModel, loading, error, onRetry }) {
             {signals.length} signal{signals.length !== 1 ? "s" : ""}
           </span>
         </div>
-        <ActionCenterSignals signals={signals} decision={decision} />
+        <ActionCenterSignals
+          signals={signals}
+          decision={decision}
+          diagnosis={viewModel.stageDetails?.diagnosis}
+          strategy={viewModel.stageDetails?.strategy}
+          simulation={viewModel.stageDetails?.simulation}
+        />
       </div>
 
       {/* Pipeline Stage Status */}
@@ -168,6 +244,33 @@ function ActionCenterView({ viewModel, loading, error, onRetry }) {
           ) : null}
         </div>
       ) : null}
+
+      {/* Operational Metrics */}
+      <div className="card" style={{ padding: 24 }}>
+        <h3 style={{ margin: "0 0 16px", color: T.text, fontSize: "1rem", fontWeight: 700 }}>Operational Metrics</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+          {metricCards.map(({ label, value, helper, compact }) => (
+            <div key={label} style={{ background: T.cardAlt, border: `1px solid ${T.border}`, borderRadius: 8, padding: "14px 16px" }}>
+              <div style={{ fontSize: "0.72rem", color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{label}</div>
+              <div
+                style={{
+                  fontSize: compact ? "0.95rem" : "1.25rem",
+                  lineHeight: compact ? 1.25 : 1.1,
+                  fontWeight: 700,
+                  color: T.primary,
+                  wordBreak: "break-word",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {value}
+              </div>
+              {helper ? (
+                <div style={{ marginTop: 6, fontSize: "0.7rem", color: T.muted, lineHeight: 1.35 }}>{helper}</div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -42,7 +42,7 @@ def make_decision(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     diagnosis_ctx = {"fraud_score": fraud_score}
-    policy_result = validate_strategy(strategy_input, diagnosis_ctx)
+    policy_result = validate_strategy(strategy_input, diagnosis_ctx, data)
 
     strategies_evaluated = [s.get("action_type") for s in strategies if s.get("action_type")]
     simulations_evaluated = [s.get("action_type") for s in simulations if s.get("action_type")]

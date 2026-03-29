@@ -257,6 +257,91 @@ function buildSimulationSeries(simulation, strategy) {
   }));
 }
 
+function toNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function positiveOrZero(value) {
+  const num = toNumber(value);
+  return num == null ? 0 : Math.max(0, num);
+}
+
+function buildRevenueInsights(latestDecision, stageDetails) {
+  const kpi = stageDetails?.ingestion?.kpi || latestDecision?.kpi || {};
+  const previousRevenue = toNumber(kpi?.previous?.revenue);
+  const currentRevenue = toNumber(kpi?.current?.revenue);
+  const abandonedCartValue = toNumber(stageDetails?.ingestion?.cart?.abandoned_value);
+  const signalCount = toNumber(stageDetails?.signal_detection?.signal_count) || 0;
+
+  // Primary definition: sum of cart values from non-converted users when signal conditions exist.
+  // Fallback: baseline revenue window drop when abandoned cart value is unavailable.
+  const potentialRevenueLeaked =
+    abandonedCartValue != null
+      ? (signalCount > 0 ? Math.max(0, abandonedCartValue) : 0)
+      : previousRevenue != null && currentRevenue != null
+        ? Math.max(0, previousRevenue - currentRevenue)
+        : 0;
+
+  const simulation = stageDetails?.simulation || {};
+  const decision = stageDetails?.decision || {};
+  const execution = stageDetails?.execution || {};
+
+  const recoverableFromSim = toNumber(simulation?.median_revenue_uplift);
+  const recoverableFromDecisionAmount =
+    toNumber(decision?.expected_impact?.amount) ||
+    toNumber(decision?.expected_impact_amount) ||
+    toNumber(latestDecision?.expected_impact_amount);
+
+  const upliftPct =
+    toNumber(simulation?.expected_uplift_pct) ||
+    toNumber(decision?.expected_impact?.uplift_pct) ||
+    toNumber(latestDecision?.expected_uplift_pct);
+
+  const recoverableFromPct =
+    upliftPct != null && currentRevenue != null ? (upliftPct / 100) * currentRevenue : null;
+
+  const potentialRevertable = Math.max(
+    positiveOrZero(recoverableFromSim),
+    positiveOrZero(recoverableFromDecisionAmount),
+    positiveOrZero(recoverableFromPct)
+  );
+
+  const revertedFromExecution =
+    toNumber(execution?.actual_revenue_change) ||
+    toNumber(latestDecision?.actual_revenue_change) ||
+    toNumber(latestDecision?.actual_outcome_30min?.revenue_change) ||
+    toNumber(latestDecision?.actual_outcome_30min?.recovered_revenue);
+
+  const alreadyReverted = positiveOrZero(revertedFromExecution);
+
+  return {
+    potentialRevenueLeaked,
+    potentialRevertable,
+    alreadyReverted,
+    source: {
+      leak:
+        abandonedCartValue != null
+          ? "ingestion.cart.abandoned_value"
+          : previousRevenue != null && currentRevenue != null
+            ? "kpi_window"
+            : "unavailable",
+      revertable:
+        recoverableFromSim != null
+          ? "simulation.median_revenue_uplift"
+          : recoverableFromDecisionAmount != null
+            ? "decision.expected_impact_amount"
+            : recoverableFromPct != null
+              ? "expected_uplift_pct"
+              : "unavailable",
+      reverted: revertedFromExecution != null ? "execution.actual_revenue_change" : "unavailable"
+    }
+  };
+}
+
 function buildPipelineStatus(stageId, stageDetails, decisionDetails, executionDetails) {
   const decisionType = normalizeDecisionDecision(decisionDetails?.decision);
 
@@ -348,6 +433,7 @@ export function buildOverviewViewModel(overview) {
     currentStage: getCurrentStage(statusByStage),
     trendSeries: buildTrendSeries(latestDecision, ingestionAgentDetails),
     simulationSeries: buildSimulationSeries(stageDetails.simulation, stageDetails.strategy),
+    revenueInsights: buildRevenueInsights(latestDecision, stageDetails),
     executionMode: normalizeExecutionStatus(stageDetails.execution, stageDetails.decision),
     pipelineStages: PIPELINE_STAGES,
     stageMeta: STAGE_META

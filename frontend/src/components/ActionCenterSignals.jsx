@@ -64,6 +64,208 @@ function buildReason(signal) {
   return `${metric.charAt(0).toUpperCase() + metric.slice(1)} exceeded threshold at ${signal.current_value ?? "—"}.`;
 }
 
+function policyItemToText(item) {
+  if (item == null) return "Unknown policy detail";
+  if (typeof item === "string") return item;
+  if (typeof item === "number" || typeof item === "boolean") return String(item);
+
+  if (typeof item === "object") {
+    const parts = [
+      item.code,
+      item.policy,
+      item.rule,
+      item.name,
+      item.role,
+      item.message,
+      item.reason,
+      item.description,
+      item.required_by,
+      item.requiredBy,
+    ]
+      .filter((v) => v !== undefined && v !== null && String(v).trim() !== "")
+      .map((v) => String(v).trim());
+
+    if (parts.length > 0) {
+      return parts.join(" - ");
+    }
+
+    try {
+      return JSON.stringify(item);
+    } catch {
+      return "Unrecognized policy detail";
+    }
+  }
+
+  return String(item);
+}
+
+function normalizePolicyItems(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(policyItemToText).filter(Boolean);
+}
+
+function tokenize(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w && w.length >= 4);
+}
+
+function unique(arr) {
+  return [...new Set(arr)];
+}
+
+function metricAliases(metric) {
+  const m = String(metric || "").toLowerCase();
+  const aliases = new Set([m]);
+  if (m === "latency_ms") aliases.add("avg_latency");
+  if (m === "avg_latency") aliases.add("latency_ms");
+  if (m === "cart_abandonment_rate") aliases.add("abandonment_rate");
+  if (m === "abandonment_rate") aliases.add("cart_abandonment_rate");
+  return aliases;
+}
+
+function isViolationRelevantToSignal(signal, violation) {
+  const signalMetricAliases = metricAliases(signal?.metric);
+  const violationMetric = String(violation?.metric || "").toLowerCase();
+
+  // Strongest mapping: explicit metric match from backend violation payload.
+  if (violationMetric && signalMetricAliases.has(violationMetric)) {
+    return true;
+  }
+
+  const signalType = String(signal?.type || "").toLowerCase();
+  const signalText = `${signalType} ${String(signal?.metric || "")}`.toLowerCase();
+  const violationText = JSON.stringify(violation || {}).toLowerCase();
+
+  // Fraud policy usually maps to payment/fraud-related signals.
+  if (String(violation?.rule || "").toLowerCase() === "fraud_threshold") {
+    return signalText.includes("payment") || signalText.includes("fraud");
+  }
+
+  // Fallback: keyword overlap between violation payload and signal descriptors.
+  return tokenize(violationText).some((kw) => signalText.includes(kw));
+}
+
+function buildSignalDecisionContext(signal, context) {
+  const decision = context?.decision || {};
+  const diagnosisRows = context?.diagnosis?.diagnosed_causes || [];
+  const strategyRows = context?.strategy?.strategies || [];
+  const simulation = context?.simulation || {};
+
+  const signalKeywords = unique([
+    ...tokenize(signal?.type),
+    ...tokenize(signal?.metric),
+  ]);
+
+  const relatedCauses = diagnosisRows.filter((cause) => {
+    const affectedMetric = String(cause?.affected_metric || "").toLowerCase();
+    if (affectedMetric && String(signal?.metric || "").toLowerCase() === affectedMetric) {
+      return true;
+    }
+    const causeText = `${cause?.cause || ""} ${(cause?.evidence || []).join(" ")}`.toLowerCase();
+    return signalKeywords.some((kw) => causeText.includes(kw));
+  });
+
+  const causeKeywords = unique(relatedCauses.flatMap((c) => tokenize(`${c?.cause || ""} ${(c?.evidence || []).join(" ")}`)));
+  const allKeywords = unique([...signalKeywords, ...causeKeywords]);
+
+  const matchedStrategies = strategyRows.filter((s) => {
+    const text = `${s?.action_type || ""} ${s?.description || ""} ${s?.rationale || ""}`.toLowerCase();
+    return allKeywords.some((kw) => text.includes(kw));
+  });
+
+  const selectedAction = String(decision?.action_type || decision?.selected_action || "").toLowerCase();
+  const selectedForSignal = matchedStrategies.some((s) => String(s?.action_type || "").toLowerCase() === selectedAction);
+
+  const signalDecision = selectedForSignal
+    ? String(decision?.decision || "INVESTIGATE").toUpperCase()
+    : matchedStrategies.length > 0
+      ? "INVESTIGATE"
+      : "MONITOR";
+
+  const strategyConfidence = matchedStrategies.length > 0 ? Math.max(...matchedStrategies.map((s) => Number(s?.confidence || 0))) : null;
+  const decisionConfidence = Number(decision?.confidence || 0);
+  const signalConfidence = Math.max(Number(signal?.confidence || 0), strategyConfidence || 0, decisionConfidence || 0);
+
+  const primaryCause = relatedCauses[0] || null;
+  const riskLevel =
+    (primaryCause?.severity && String(primaryCause.severity).toUpperCase()) ||
+    String(decision?.risk_level || decision?.blast_radius || signal?.severity || "UNKNOWN").toUpperCase();
+
+  const reason = primaryCause?.cause || buildReason(signal);
+
+  const governance = decision?.governance_check || {};
+  const rawViolations = Array.isArray(governance?.violations)
+    ? governance.violations
+    : Array.isArray(decision?.violations)
+      ? decision.violations
+      : [];
+
+  const relevantViolations = rawViolations.filter((v) => isViolationRelevantToSignal(signal, v));
+
+  const policyViolationDetails = relevantViolations.map((v) => {
+    const violationMetric = String(v?.metric || "").toLowerCase();
+    const metricMatch = violationMetric
+      ? metricAliases(signal?.metric).has(violationMetric)
+      : false;
+    return {
+      text: policyItemToText(v),
+      metric: violationMetric || null,
+      metricMatch,
+    };
+  });
+
+  const policyViolations = policyViolationDetails.map((v) => v.text);
+
+  const rawApprovals =
+    governance?.required_approvals ||
+    decision?.requires_human_approval ||
+    [];
+  const requiresApproval = normalizePolicyItems(
+    relevantViolations.length > 0 || selectedForSignal ? rawApprovals : []
+  );
+
+  const policyOk = policyViolations.length === 0;
+  const simulationMatched = simulation?.action_type && matchedStrategies.some((s) => s.action_type === simulation.action_type);
+
+  const strategySuggested = matchedStrategies.map((s) => ({
+    label: String(s?.action_type || "").replace(/_/g, " "),
+    source: "strategy",
+  }));
+
+  const fallbackBySignal = {
+    payment_failure_rate: ["fraud mitigation", "investigate payments", "payment gateway failover"],
+    latency_ms: ["infrastructure optimization", "autoscale services", "performance profiling"],
+    cart_abandonment_rate: ["improve checkout", "apply discount", "abandonment retargeting"],
+    abandonment_rate: ["improve checkout", "apply discount", "abandonment retargeting"],
+    conversion_rate: ["optimize conversion funnel", "improve checkout", "targeted offer"],
+  };
+
+  const fallbackActions = fallbackBySignal[String(signal?.metric || "").toLowerCase()] || ["investigate issue", "monitor trend"];
+
+  const suggestedActions = unique([
+    ...strategySuggested.map((x) => x.label),
+    ...fallbackActions,
+  ]).slice(0, 5);
+
+  return {
+    signalDecision,
+    signalConfidence,
+    riskLevel,
+    reason,
+    policyViolations,
+    policyViolationDetails,
+    requiresApproval,
+    policyOk,
+    selectedForSignal,
+    matchedStrategies,
+    simulationMatched,
+    suggestedActions,
+  };
+}
+
 function buildSlackMessage(signal) {
   const label = SIGNAL_LABELS[signal.type] || signal.type;
   const conf = signal.confidence != null ? `${Math.round(signal.confidence * 100)}%` : "—";
@@ -204,12 +406,13 @@ function ActionBtn({ label, icon, phase, activeColor, activeBg, onClick, disable
 }
 
 // ─── Individual signal row ──────────────────────────────────────────────────
-function SignalRow({ signal, decision, isExpanded, onToggle }) {
+function SignalRow({ signal, decision, diagnosis, strategy, simulation, isExpanded, onToggle }) {
   const isAlert = ALERT_TYPES.has(signal.type);
   const label = SIGNAL_LABELS[signal.type] || signal.type?.replace(/_/g, " ");
   const sev = severityPalette(signal.severity);
-  const conf = signal.confidence != null ? `${Math.round(signal.confidence * 100)}%` : "—";
-  const confFraction = signal.confidence ?? 0;
+  const signalCtx = buildSignalDecisionContext(signal, { decision, diagnosis, strategy, simulation });
+  const conf = signalCtx.signalConfidence != null ? `${Math.round(signalCtx.signalConfidence * 100)}%` : "—";
+  const confFraction = signalCtx.signalConfidence ?? 0;
 
   const [actions, setActions] = useState({});  // { approve: null|"loading"|"done" }
   const [copied, setCopied] = useState({});     // { slack: bool, email: bool }
@@ -217,15 +420,13 @@ function SignalRow({ signal, decision, isExpanded, onToggle }) {
 
   const slack = buildSlackMessage(signal);
   const email = buildEmailDraft(signal);
-  const reason = buildReason(signal);
+  const reason = signalCtx.reason;
 
-  const policyViolations = decision?.violations?.length
-    ? decision.violations
-    : [];
-  const requiresApproval = decision?.requires_human_approval?.length
-    ? decision.requires_human_approval
-    : [];
-  const policyOk = policyViolations.length === 0;
+  const policyViolations = signalCtx.policyViolations;
+  const policyViolationDetails = signalCtx.policyViolationDetails || [];
+  const requiresApproval = signalCtx.requiresApproval;
+  const policyOk = signalCtx.policyOk;
+  const suggestedActions = signalCtx.suggestedActions || [];
 
   function fireAction(key) {
     setActions((p) => ({ ...p, [key]: "loading" }));
@@ -341,9 +542,9 @@ function SignalRow({ signal, decision, isExpanded, onToggle }) {
           {/* KV grid: Decision / Confidence / Risk / Current / Previous */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 16 }}>
             {[
-              { label: "Decision", value: decision?.decision || "N/A", accent: true },
+              { label: "Decision", value: signalCtx.signalDecision || "N/A", accent: true },
               { label: "Confidence", value: conf },
-              { label: "Risk Level", value: decision?.risk_level || signal.severity || "—" },
+              { label: "Risk Level", value: signalCtx.riskLevel || signal.severity || "—" },
               { label: "Current Value", value: signal.current_value != null ? String(signal.current_value) : "—" },
               { label: "Previous Value", value: signal.previous_value != null ? String(signal.previous_value) : "—" },
             ].map(({ label, value, accent }) => (
@@ -382,12 +583,79 @@ function SignalRow({ signal, decision, isExpanded, onToggle }) {
             <div style={{ fontSize: "0.68rem", color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
               Policy Check
             </div>
-            <div style={{ fontSize: "0.86rem", fontWeight: 600, color: policyOk ? T.primary : "#b02020" }}>
-              {policyOk
-                ? requiresApproval.length
+            {policyOk ? (
+              <div style={{ fontSize: "0.86rem", fontWeight: 600, color: T.primary }}>
+                {requiresApproval.length
                   ? `Requires approval from: ${requiresApproval.join(", ")}`
-                  : "✓ No policy violations"
-                : `${policyViolations.length} violation${policyViolations.length > 1 ? "s" : ""}: ${policyViolations.join(", ")}`}
+                  : "✓ No policy violations"}
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ fontSize: "0.84rem", fontWeight: 700, color: "#b02020" }}>
+                  {policyViolations.length} violation{policyViolations.length > 1 ? "s" : ""}
+                </div>
+                {policyViolationDetails.map((item, idx) => (
+                  <div
+                    key={`${item.text}-${idx}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #f5c6cb",
+                      background: "#fff5f5",
+                    }}
+                  >
+                    <span style={{ fontSize: "0.8rem", color: "#8e1f1f", lineHeight: 1.35 }}>
+                      {item.text}
+                    </span>
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        fontSize: "0.68rem",
+                        fontWeight: 700,
+                        borderRadius: 999,
+                        padding: "2px 8px",
+                        border: `1px solid ${item.metricMatch ? "#9fd5b4" : "#f0b9b9"}`,
+                        background: item.metricMatch ? "#ebf8f0" : "#fdeaea",
+                        color: item.metricMatch ? "#226b49" : "#9b2c2c",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      {item.metric ? (item.metricMatch ? `metric match: ${item.metric}` : `metric: ${item.metric}`) : "no metric"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Suggested Actions */}
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: "0.68rem", color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
+              Suggested Actions
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {suggestedActions.map((action) => (
+                <span
+                  key={action}
+                  style={{
+                    fontSize: "0.78rem",
+                    fontWeight: 600,
+                    color: T.text,
+                    background: T.cardAlt,
+                    border: `1px solid ${T.border}`,
+                    borderRadius: 999,
+                    padding: "5px 10px",
+                    textTransform: "capitalize",
+                  }}
+                >
+                  {action}
+                </span>
+              ))}
             </div>
           </div>
 
@@ -508,7 +776,7 @@ function FilterPill({ label, count, active, onClick }) {
 // ─── Main exported component ──────────────────────────────────────────────────
 const FILTERS = ["ALL", "HIGH", "MEDIUM", "LOW"];
 
-export default function ActionCenterSignals({ signals, decision }) {
+export default function ActionCenterSignals({ signals, decision, diagnosis, strategy, simulation }) {
   const [expandedId, setExpandedId] = useState(null);
   const [filter, setFilter] = useState("ALL");
 
@@ -561,6 +829,9 @@ export default function ActionCenterSignals({ signals, decision }) {
                 key={rowId}
                 signal={signal}
                 decision={decision}
+                diagnosis={diagnosis}
+                strategy={strategy}
+                simulation={simulation}
                 isExpanded={expandedId === rowId}
                 onToggle={() => setExpandedId((prev) => (prev === rowId ? null : rowId))}
               />

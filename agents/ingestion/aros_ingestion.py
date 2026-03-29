@@ -76,6 +76,42 @@ def compute_cart_abandonment(df):
     return round((drops / adds) * 100, 2) if adds > 0 else 0.0
 
 
+def compute_abandoned_cart_value(df):
+    """Estimate leaked cart value from users who did not convert.
+
+    The upstream schema can vary by deployment, so this function tries a set of
+    common column names and non-conversion indicators.
+    """
+    if df.empty:
+        return 0.0
+
+    # Detect value column from common variants.
+    value_col = next(
+        (c for c in ["cart_value", "amount", "order_value", "total_value", "value"] if c in df.columns),
+        None,
+    )
+    if not value_col:
+        return 0.0
+
+    leak_df = df
+
+    # Prefer explicit conversion flags when present.
+    if "converted" in leak_df.columns:
+        leak_df = leak_df[leak_df["converted"] == False]  # noqa: E712
+    elif "is_converted" in leak_df.columns:
+        leak_df = leak_df[leak_df["is_converted"] == False]  # noqa: E712
+    # Fall back to event/status semantics.
+    elif "status" in leak_df.columns:
+        leak_df = leak_df[leak_df["status"].isin(["abandoned", "dropped", "not_converted", "pending"])]
+    elif "action" in leak_df.columns:
+        leak_df = leak_df[leak_df["action"].isin(["drop", "abandon", "remove", "exit"]) ]
+
+    if leak_df.empty:
+        return 0.0
+
+    return round(safe_sum(leak_df[value_col]), 2)
+
+
 def compute_conversion_rate(df):
     if df.empty or "status" not in df:
         return 0.0
@@ -158,6 +194,7 @@ def run_ingestion():
         cart_metrics = {
             "abandonment_rate": compute_cart_abandonment(cart_df),
             "events": len(cart_df),
+            "abandoned_value": compute_abandoned_cart_value(cart_df),
         }
 
         fraud_metrics = {
