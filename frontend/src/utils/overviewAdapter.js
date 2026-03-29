@@ -298,8 +298,8 @@ function getCurrentStage(statusByStage) {
 export function buildOverviewViewModel(overview) {
   const latestDecision = overview?.latest_decision || {};
   const rawDecision =
-    getByPath(latestDecision, STAGE_KEY_PATHS.decision[0]) ||
-    getAgentDetails(overview, "decision");
+    getAgentDetails(overview, "decision") ||
+    getByPath(latestDecision, STAGE_KEY_PATHS.decision[0]);
 
   const ingestionAgentDetails = getAgentDetails(overview, "ingestion");
 
@@ -311,8 +311,12 @@ export function buildOverviewViewModel(overview) {
     diagnosis:
       getAgentDetails(overview, "diagnosis") ||
       getByPath(latestDecision, STAGE_KEY_PATHS.diagnosis[0]),
-    strategy: getByPath(latestDecision, STAGE_KEY_PATHS.strategy[0]) || getAgentDetails(overview, "strategy"),
-    simulation: getByPath(latestDecision, STAGE_KEY_PATHS.simulation[0]) || getAgentDetails(overview, "simulation"),
+    strategy:
+      getAgentDetails(overview, "strategy") ||
+      getByPath(latestDecision, STAGE_KEY_PATHS.strategy[0]),
+    simulation:
+      getAgentDetails(overview, "simulation") ||
+      getByPath(latestDecision, STAGE_KEY_PATHS.simulation[0]),
     decision: normalizeDecisionDetails(rawDecision, latestDecision),
     execution: getByPath(latestDecision, STAGE_KEY_PATHS.execution[0]) || getAgentDetails(overview, "execution"),
     reflection:

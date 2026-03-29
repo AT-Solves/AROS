@@ -55,16 +55,16 @@ def simulate_strategy(strategy: Dict[str, Any], kpi: Dict[str, Any]) -> Dict[str
 
     action = strategy.get("action_type")
 
-    if action == "apply_discount":
+    if action in ("apply_discount",):
         impact = simulate_discount(kpi)
 
-    elif action == "optimize_performance":
+    elif action in ("optimize_performance", "infrastructure_optimization", "scale_infrastructure"):
         impact = simulate_performance_fix(kpi)
 
-    elif action == "investigate_payments":
+    elif action in ("investigate_payments", "add_payment_fallback", "fraud_mitigation"):
         impact = simulate_payment_fix(kpi)
 
-    elif action == "improve_checkout":
+    elif action in ("improve_checkout",):
         impact = simulate_checkout_improvement(kpi)
 
     else:

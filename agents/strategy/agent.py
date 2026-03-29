@@ -1,196 +1,184 @@
-# AROS – Strategy Agent (Improved + Fallback + Context-Aware)
+# AROS – Strategy Agent (All-Cause Coverage)
 
 import json
 import sys
-from typing import Dict, Any
-from groq import Groq
-from config import CONFIG
-
-client = Groq(api_key=CONFIG["groq"]["api_key"])
+from typing import Dict, Any, List
 
 
-# ─────────────────────────────────────────────
-# BUILD PROMPT
-# ─────────────────────────────────────────────
-def build_prompt(data: Dict[str, Any]) -> str:
-
-    diagnosis = data.get("diagnosis", {})
-    cause = diagnosis.get("primary_cause", "unknown")
-
-    return f"""
-You are a Strategy Optimization Agent for an e-commerce platform.
-
-PRIMARY ROOT CAUSE:
-{cause}
-
-FULL CONTEXT:
-{json.dumps(data, indent=2)}
-
----
-
-TASK:
-
-1. Generate 2–3 actionable strategies
-2. Align strategies with the root cause
-3. Keep them realistic and safe
-4. Avoid generic answers
-
----
-
-GUIDELINES:
-
-- If cause = scaling_issue:
-  → suggest infrastructure scaling, performance optimization, load balancing
-
-- If cause = payment_failure:
-  → suggest payment retries, gateway fallback, monitoring
-
-- If cause = conversion_drop:
-  → suggest UX improvement, pricing optimization
-
-- If uncertain:
-  → suggest investigation + safe optimizations
-
----
-
-OUTPUT FORMAT (STRICT JSON):
-
-{{
-  "strategies": [
-    {{
-      "action_type": "...",
-      "description": "...",
-      "expected_impact": "...",
-      "confidence": 0.0,
-      "risk_level": "low|medium|high"
-    }}
-  ],
-  "primary_strategy": "...",
-  "reasoning": "..."
-}}
-"""
+def _risk_rank(level: str) -> int:
+    return {"low": 1, "medium": 2, "high": 3}.get((level or "medium").lower(), 2)
 
 
-# ─────────────────────────────────────────────
-# LLM CALL
-# ─────────────────────────────────────────────
-def call_llm(prompt: str) -> Dict[str, Any]:
+def _extract_diagnosis(data: Dict[str, Any]) -> Dict[str, Any]:
+    diagnosis_obj = data.get("diagnosis", {}) or {}
+    diagnosed_causes = data.get("diagnosed_causes", []) or []
 
-    try:
-        response = client.chat.completions.create(
-            model="llama3-70b-8192",
-            messages=[
-                {"role": "system", "content": "You are a precise strategy system."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.3,
-        )
+    if not diagnosed_causes and diagnosis_obj.get("root_causes"):
+        diagnosed_causes = [
+            {
+                "cause": item,
+                "signal_type": "unknown",
+                "severity": data.get("severity", "MEDIUM"),
+                "confidence": diagnosis_obj.get("confidence", 0.6),
+                "affected_metric": "unknown_metric",
+            }
+            for item in diagnosis_obj.get("root_causes", [])
+        ]
 
-        content = response.choices[0].message.content
-        return json.loads(content)
-
-    except Exception as e:
-        return {
-            "strategies": [],
-            "primary_strategy": "none",
-            "reasoning": f"llm_error: {str(e)}"
-        }
-
-
-# ─────────────────────────────────────────────
-# FALLBACK STRATEGIES (CRITICAL)
-# ─────────────────────────────────────────────
-def fallback_strategy(data: Dict[str, Any]) -> Dict[str, Any]:
-
-    cause = data.get("diagnosis", {}).get("primary_cause")
-
-    if cause == "scaling_issue":
-        return {
-            "strategies": [
-                {
-                    "action_type": "scale_infrastructure",
-                    "description": "Increase server capacity and enable auto-scaling",
-                    "expected_impact": "Reduce latency and improve system stability",
-                    "confidence": 0.85,
-                    "risk_level": "medium"
-                },
-                {
-                    "action_type": "optimize_performance",
-                    "description": "Implement caching and CDN to reduce latency",
-                    "expected_impact": "Improve response time and user experience",
-                    "confidence": 0.8,
-                    "risk_level": "low"
-                }
-            ],
-            "primary_strategy": "scale_infrastructure",
-            "reasoning": "Fallback applied for scaling issue"
-        }
-
-    if cause == "payment_failure":
-        return {
-            "strategies": [
-                {
-                    "action_type": "add_payment_fallback",
-                    "description": "Enable secondary payment gateway",
-                    "expected_impact": "Reduce transaction failures",
-                    "confidence": 0.9,
-                    "risk_level": "low"
-                }
-            ],
-            "primary_strategy": "add_payment_fallback",
-            "reasoning": "Fallback applied for payment failure"
-        }
+    primary_cause = (
+        diagnosis_obj.get("primary_cause")
+        or data.get("primary_cause")
+        or (diagnosed_causes[0].get("cause") if diagnosed_causes else "unknown")
+    )
 
     return {
-        "strategies": [
-            {
-                "action_type": "investigate_issue",
-                "description": "Perform deeper analysis of system anomalies",
-                "expected_impact": "Identify root cause",
-                "confidence": 0.5,
-                "risk_level": "low"
-            }
-        ],
-        "primary_strategy": "investigate_issue",
-        "reasoning": "Generic fallback strategy"
+        "primary_cause": primary_cause,
+        "diagnosed_causes": diagnosed_causes,
+        "fraud_score": data.get("fraud_score", 0),
     }
 
 
-# ─────────────────────────────────────────────
-# MAIN FUNCTION
-# ─────────────────────────────────────────────
+def _strategy_template(action_type: str) -> Dict[str, Any]:
+    templates = {
+        "optimize_performance": {
+            "description": "Scale infrastructure and optimize latency-critical paths.",
+            "expected_impact": "Reduce latency and abandonment from performance bottlenecks.",
+            "confidence": 0.82,
+            "risk_level": "low",
+        },
+        "investigate_payments": {
+            "description": "Add payment retry/fallback and tighten payment monitoring.",
+            "expected_impact": "Lower payment failures and recover checkout completions.",
+            "confidence": 0.86,
+            "risk_level": "low",
+        },
+        "improve_checkout": {
+            "description": "Optimize checkout UX and reduce friction in funnel steps.",
+            "expected_impact": "Improve conversion and reduce cart drop-off.",
+            "confidence": 0.8,
+            "risk_level": "low",
+        },
+        "apply_discount": {
+            "description": "Run targeted incentive campaign for at-risk cohorts.",
+            "expected_impact": "Recover conversion and short-term revenue.",
+            "confidence": 0.72,
+            "risk_level": "medium",
+        },
+        "investigate_issue": {
+            "description": "Escalate for deeper investigation with safe-guard monitoring.",
+            "expected_impact": "Contain uncertainty while collecting root-cause evidence.",
+            "confidence": 0.6,
+            "risk_level": "low",
+        },
+    }
+    return templates.get(action_type, templates["investigate_issue"])
+
+
+def _map_cause_to_action(cause: Dict[str, Any]) -> str:
+    signal_type = (cause.get("signal_type") or "").lower()
+    cause_text = (cause.get("cause") or "").lower()
+
+    if signal_type in ("latency_spike", "user_latency_high") or "latency" in cause_text or "scaling" in cause_text:
+        return "optimize_performance"
+
+    if signal_type in ("payment_failures_high",) or "payment" in cause_text or "fraud" in cause_text:
+        return "investigate_payments"
+
+    if signal_type in ("cart_abandonment_high", "order_conversion_low", "conversion_drop", "user_drop_off_high"):
+        return "improve_checkout"
+
+    if signal_type in ("revenue_drop",) or "revenue" in cause_text:
+        return "apply_discount"
+
+    return "investigate_issue"
+
+
+def _build_strategies_from_causes(diagnosed_causes: List[Dict[str, Any]], fraud_score: float) -> List[Dict[str, Any]]:
+    strategy_by_action = {}
+
+    for cause in diagnosed_causes:
+        action = _map_cause_to_action(cause)
+        base = _strategy_template(action)
+
+        if action not in strategy_by_action:
+            strategy_by_action[action] = {
+                "action_type": action,
+                "description": base["description"],
+                "expected_impact": base["expected_impact"],
+                "confidence": base["confidence"],
+                "risk_level": base["risk_level"],
+                "covers": [],
+            }
+
+        strategy_by_action[action]["covers"].append(cause.get("cause", "unknown"))
+
+        cause_conf = cause.get("confidence", base["confidence"])
+        strategy_by_action[action]["confidence"] = round(
+            max(strategy_by_action[action]["confidence"], cause_conf),
+            2,
+        )
+
+    if fraud_score >= 0.65 and "investigate_payments" not in strategy_by_action:
+        base = _strategy_template("investigate_payments")
+        strategy_by_action["investigate_payments"] = {
+            "action_type": "investigate_payments",
+            "description": base["description"],
+            "expected_impact": base["expected_impact"],
+            "confidence": max(base["confidence"], 0.85),
+            "risk_level": "low",
+            "covers": ["fraud_risk_signal"],
+        }
+
+    if not strategy_by_action:
+        base = _strategy_template("investigate_issue")
+        strategy_by_action["investigate_issue"] = {
+            "action_type": "investigate_issue",
+            "description": base["description"],
+            "expected_impact": base["expected_impact"],
+            "confidence": base["confidence"],
+            "risk_level": base["risk_level"],
+            "covers": ["unknown"],
+        }
+
+    strategies = list(strategy_by_action.values())
+
+    # pick higher-confidence, lower-risk options first
+    strategies.sort(key=lambda s: (s.get("confidence", 0), -_risk_rank(s.get("risk_level"))), reverse=True)
+    return strategies
+
+
 def recommend_strategy(data: Dict[str, Any]) -> Dict[str, Any]:
+    diagnosis_ctx = _extract_diagnosis(data)
+    diagnosed_causes = diagnosis_ctx["diagnosed_causes"]
+    fraud_score = diagnosis_ctx["fraud_score"]
 
-    prompt = build_prompt(data)
-    llm_output = call_llm(prompt)
-
-    strategies = llm_output.get("strategies", [])
-
-    # 🚨 CRITICAL FIX: NEVER RETURN EMPTY
-    if not strategies:
-        llm_output = fallback_strategy(data)
+    strategies = _build_strategies_from_causes(diagnosed_causes, fraud_score)
+    primary_strategy = strategies[0]["action_type"] if strategies else "none"
 
     result = {
         "agent": "StrategyAgent",
-        "strategies": llm_output.get("strategies", []),
-        "primary_strategy": llm_output.get("primary_strategy", "none"),
-        "reasoning": llm_output.get("reasoning", ""),
+        "strategies": strategies,
+        "primary_strategy": primary_strategy,
+        "reasoning": (
+            f"Analyzed {len(diagnosed_causes)} root cause(s). "
+            f"Generated {len(strategies)} strategy option(s) covering all detected causes. "
+            f"Primary recommendation: {primary_strategy}."
+        ),
         "next_agent": "SimulationAgent",
         "log": {
             "status": "completed",
-            "strategy_count": len(llm_output.get("strategies", [])),
+            "strategy_count": len(strategies),
+            "causes_analyzed": len(diagnosed_causes),
+            "coverage_mode": "all_causes",
         },
     }
 
-    print("\n=== STRATEGY OUTPUT (IMPROVED) ===\n")
+    print("\n=== STRATEGY OUTPUT (ALL-CAUSE) ===\n")
     print(json.dumps(result, indent=2))
 
     return result
 
 
-# ─────────────────────────────────────────────
-# ENTRY POINT
-# ─────────────────────────────────────────────
 if __name__ == "__main__":
     raw = sys.stdin.read() or "{}"
     data = json.loads(raw)

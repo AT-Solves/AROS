@@ -24,6 +24,9 @@ from db.connection import get_db_manager, DatabaseConfig
 from agents.ingestion.aros_ingestion import run_ingestion
 from agents.signal_detection.agent import detect_signals
 from agents.diagnosis.agent import diagnose
+from agents.strategy.agent import recommend_strategy
+from agents.simulation.agent import simulate
+from agents.decision.agent import make_decision
 
 # ─── FastAPI App ────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -277,6 +280,27 @@ async def agents_overview():
         except Exception:
             diagnosis_details = {}
 
+        # Run strategy live from the same live context + live diagnosis
+        try:
+            strategy_input = {**diagnosis_input, **diagnosis_details} if diagnosis_input else diagnosis_details
+            strategy_details = recommend_strategy(strategy_input) if strategy_input else {}
+        except Exception:
+            strategy_details = {}
+
+        # Run simulation live from live strategy + live KPI context
+        try:
+            simulation_input = {**strategy_input, **strategy_details} if strategy_input else strategy_details
+            simulation_details = simulate(simulation_input) if simulation_input else {}
+        except Exception:
+            simulation_details = {}
+
+        # Run decision live using governance/policy engine on simulation output
+        try:
+            decision_input = {**simulation_input, **simulation_details} if simulation_input else simulation_details
+            decision_details = make_decision(decision_input) if decision_input else {}
+        except Exception:
+            decision_details = {}
+
         return {
             "total_decisions": len(decisions),
             "status_counts": status_counts,
@@ -324,30 +348,35 @@ async def agents_overview():
                     "title": "Strategy Agent",
                     "description": "Recommends actions and prioritizes them based on uplift, cost, and risk.",
                     "primary_metrics": {
-                        "options": len((latest_data.get("strategy") or {}).get("strategies", [])),
-                        "selected": (latest_data.get("strategy") or {}).get("primary_strategy", {}).get("action_type", "N/A"),
+                        "options": len((strategy_details or {}).get("strategies", [])),
+                        "selected": (
+                            (strategy_details or {}).get("primary_strategy", "N/A")
+                            if isinstance((strategy_details or {}).get("primary_strategy"), str)
+                            else ((strategy_details or {}).get("primary_strategy", {}) or {}).get("action_type", "N/A")
+                        ),
                     },
-                    "details": latest_data.get("strategy") or {},
+                    "details": strategy_details,
                 },
                 {
                     "id": "simulation",
                     "title": "Simulation Agent",
                     "description": "Runs Monte Carlo projections to estimate expected uplift and confidence.",
                     "primary_metrics": {
-                        "confidence": (latest_data.get("simulation") or {}).get("confidence", 0),
-                        "baseline_revenue": ((latest_data.get("simulation") or {}).get("simulated_metrics") or {}).get("revenue", {}).get("baseline", "N/A"),
+                        "scenario_count": len((simulation_details or {}).get("simulations", [])),
+                        "recommended_action": ((simulation_details or {}).get("recommended_action") or {}).get("action_type", "N/A"),
                     },
-                    "details": latest_data.get("simulation") or {},
+                    "details": simulation_details,
                 },
                 {
                     "id": "decision",
                     "title": "Decision Agent",
                     "description": "Applies governance and determines the final course of action.",
                     "primary_metrics": {
-                        "decision": ((latest_data.get("decision_output") or {})).get("decision", "N/A"),
-                        "blast_radius": ((latest_data.get("decision_output") or {})).get("blast_radius", "N/A"),
+                        "decision": decision_details.get("decision", "N/A"),
+                        "blast_radius": decision_details.get("blast_radius", "N/A"),
+                        "violations": len(decision_details.get("violations") or []),
                     },
-                    "details": latest_data.get("decision_output") or {},
+                    "details": decision_details,
                 },
                 {
                     "id": "execution",

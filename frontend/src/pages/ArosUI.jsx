@@ -10,6 +10,9 @@ import ReflectionPanel from "../components/ReflectionPanel";
 import IngestionPanel from "../components/IngestionPanel";
 import SignalDetectionPanel from "../components/SignalDetectionPanel";
 import DiagnosisPanel from "../components/DiagnosisPanel";
+import StrategyPanel from "../components/StrategyPanel";
+import SimulationPanel from "../components/SimulationPanel";
+import DecisionPanel from "../components/DecisionPanel";
 import { buildOverviewViewModel } from "../utils/overviewAdapter";
 import "../styles/theme.css";
 
@@ -147,7 +150,7 @@ export default function ArosUI() {
           <>
             {operatorAction ? <p className="operator-feedback">{operatorAction}</p> : null}
 
-            <div className={selectedStage === "ingestion" || selectedStage === "signal_detection" || selectedStage === "diagnosis" ? "workspace-full" : "workspace-grid"}>
+            <div className={selectedStage === "ingestion" || selectedStage === "signal_detection" || selectedStage === "diagnosis" || selectedStage === "strategy" || selectedStage === "simulation" || selectedStage === "decision" ? "workspace-full" : "workspace-grid"}>
               <section className="workspace-primary">
                 {selectedStage === "ingestion" ? (
                   <IngestionPanel details={viewModel.stageDetails.ingestion} />
@@ -157,6 +160,21 @@ export default function ArosUI() {
                   <DiagnosisPanel
                     details={viewModel.stageDetails.diagnosis}
                     liveSignals={viewModel.stageDetails.signal_detection?.signals || []}
+                  />
+                ) : selectedStage === "strategy" ? (
+                  <StrategyPanel
+                    details={viewModel.stageDetails.strategy}
+                    diagnosis={viewModel.stageDetails.diagnosis}
+                  />
+                ) : selectedStage === "simulation" ? (
+                  <SimulationPanel
+                    details={viewModel.stageDetails.simulation}
+                    strategy={viewModel.stageDetails.strategy}
+                  />
+                ) : selectedStage === "decision" ? (
+                  <DecisionPanel
+                    details={viewModel.stageDetails.decision}
+                    simulation={viewModel.stageDetails.simulation}
                   />
                 ) : (
                   <AgentPanel
@@ -169,7 +187,7 @@ export default function ArosUI() {
                 <ChartCard trendSeries={viewModel.trendSeries} simulationSeries={viewModel.simulationSeries} />
               </section>
 
-              {selectedStage !== "ingestion" && selectedStage !== "signal_detection" && selectedStage !== "diagnosis" && (
+              {selectedStage !== "ingestion" && selectedStage !== "signal_detection" && selectedStage !== "diagnosis" && selectedStage !== "strategy" && selectedStage !== "simulation" && selectedStage !== "decision" && (
                 <section className="workspace-secondary">
                   <DecisionCard decision={viewModel.stageDetails.decision} onAction={handleDecisionAction} />
                   <ExecutionPanel
