@@ -1,253 +1,220 @@
-# 🚀 AROS – Autonomous Revenue Optimization System
+# AROS - Autonomous Revenue Optimization System
 
-## 📌 Overview
+AROS is an agentic pipeline that detects revenue-impacting anomalies, diagnoses probable causes, proposes strategies, simulates impact, applies governance, and optionally executes actions under guardrails.
 
-AROS (Autonomous Revenue Optimization System) is an Agentic AI system designed to proactively detect revenue-impacting anomalies in e-commerce platforms, diagnose root causes, recommend strategies, simulate outcomes, and execute decisions safely under governance.
+## Overview
 
-This project is built as a **capstone implementation of Agentic AI**, demonstrating:
+Pipeline stages:
 
-* Multi-agent orchestration
-* Governance & policy enforcement
-* Human-in-the-loop decision making
-* Reflection-based learning
+1. Ingestion
+2. Signal Detection
+3. Diagnosis
+4. Strategy
+5. Simulation
+6. Decision
+7. Execution
+8. Reflection
 
----
+Primary entry points:
 
-## 🎯 Objective
+- Pipeline runner: `pipeline/run_pipeline.py`
+- API server: `api/fastapi_server.py`
+- Frontend (Vite React): `frontend/`
 
-Enable **real-time, autonomous revenue optimization** by replacing reactive dashboards with intelligent agents that:
+## Architecture
 
-* Detect issues early
-* Explain why they happened
-* Decide what to do
-* Execute safely
-* Learn from outcomes
+Execution flow:
 
----
-
-## 💡 Expected Impact
-
-* 📈 **8% – 20% overall revenue uplift**
-* ⚡ Faster anomaly detection & response
-* 🧠 Automated root cause analysis
-* 🛡️ Safe experimentation with governance
-
----
-
-## 🏗️ System Architecture
-
-### 🔁 Macro Workflow
-
-```
-Data Ingestion → Signal Detection → Diagnosis → Strategy → Simulation → Decision → Execution → Monitoring → Reflection
+```text
+Ingestion -> Signal Detection -> Diagnosis -> Strategy -> Simulation -> Decision -> Execution -> Reflection
 ```
 
-### 🔄 Reflection Pattern
+Orchestration is implemented in `agents/orchestrator/agent.py` and merges each stage output into a shared context object.
 
+## Agents and Responsibilities
+
+| Stage | Module | Responsibility |
+| --- | --- | --- |
+| Ingestion | `agents/ingestion/aros_ingestion.py` | Pulls KPI and domain data from PostgreSQL, computes summaries/trends/distributions |
+| Signal Detection | `agents/signal_detection/agent.py` | Detects anomaly signals and stage-level severity/confidence |
+| Diagnosis | `agents/diagnosis/agent.py` | Maps signals to root causes and computes fraud risk context |
+| Strategy | `agents/strategy/agent.py` | Generates action candidates covering diagnosed causes |
+| Simulation | `agents/simulation/agent.py` | Applies heuristic impact models and selects recommended action |
+| Decision | `agents/decision/agent.py` | Runs governance policy checks and emits EXECUTE/INVESTIGATE decision |
+| Execution | `agents/execution/agent.py` | Applies execution guardrails, dry-run/auto execution, notifications, rollback metadata |
+| Reflection | `agents/reflection/agent.py` | Scores coverage/alignment and emits learning actions |
+
+Governance logic is in `governance/policy_engine.py`.
+
+## Core Policy Guardrails
+
+Current thresholds (policy engine):
+
+- `MAX_DISCOUNT_PCT = 30`
+- `FRAUD_SCORE_THRESHOLD = 0.65`
+- `PAYMENT_FAILURE_THRESHOLD = 10.0`
+- `LATENCY_MS_THRESHOLD = 1000.0`
+- `CART_ABANDONMENT_THRESHOLD = 40.0`
+- Low-confidence violation when confidence `< 0.60`
+
+Policy decision mapping:
+
+- `AUTO -> EXECUTE`
+- `NOTIFY -> INVESTIGATE`
+- `ESCALATE -> INVESTIGATE`
+
+## Persistence Layer
+
+PostgreSQL schema lives in `db/schema.sql` and includes:
+
+- `decisions`
+- `decision_audit_log`
+- `strategy_performance_log`
+- `baseline_calibration`
+- `signal_history`
+- `execution_events`
+- `system_health`
+- `schema_migrations`
+
+DB access and JSON parsing utilities are in `db/connection.py`.
+
+## API Endpoints
+
+Implemented in `api/fastapi_server.py`:
+
+- `GET /` - health/info
+- `POST /run-pipeline` - trigger pipeline
+- `GET /decisions` - list decisions
+- `GET /decision/{decision_id}` - decision context
+- `GET /decision/{decision_id}/events` - audit and event log
+- `POST /approve` - approve decision
+- `POST /reject` - reject decision
+- `GET /agents/overview` - stage-by-stage dashboard payload
+- `GET /test-data` - test fixtures for UI validation
+- `WS /ws` - realtime event stream
+
+## Frontend
+
+Frontend app is in `frontend/` (React + Vite).
+
+Key adapter for dashboard shaping:
+
+- `frontend/src/utils/overviewAdapter.js`
+
+It normalizes API output into stage cards, stage statuses, trend series, simulation series, and Revenue Insights.
+
+## Configuration
+
+Environment variables are read in `config.py` and execution agent config:
+
+- `DB_NAME`
+- `DB_USER`
+- `DB_PASSWORD`
+- `DB_HOST`
+- `DB_PORT`
+- `OPENAI_API_KEY` (optional depending on usage)
+- `GROQ_API_KEY` (optional depending on usage)
+- `ALLOW_AUTO_EXECUTION` (`true` or `false`)
+
+Example `.env`:
+
+```env
+DB_NAME=aros
+DB_USER=postgres
+DB_PASSWORD=test123
+DB_HOST=localhost
+DB_PORT=5432
+ALLOW_AUTO_EXECUTION=false
 ```
-Action → Outcome → Compare → Learn → Update Policy
+
+## Local Setup
+
+### 1. Create and activate virtual environment
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+& .\.venv\Scripts\Activate.ps1
 ```
 
----
+### 2. Install Python dependencies
 
-## 🤖 Agents in AROS
+```powershell
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
 
-| Agent            | Responsibility                             |
-| ---------------- | ------------------------------------------ |
-| Signal Detection | Detect anomalies in KPI metrics            |
-| Diagnosis        | Identify root causes across systems        |
-| Strategy         | Recommend actions (pricing, UX, campaigns) |
-| Simulation       | Predict impact before execution            |
-| Policy Engine    | Enforce business constraints               |
-| Risk Agent       | Detect fraud and abnormal behavior         |
-| Execution        | Apply controlled changes                   |
-| Monitoring       | Track post-action performance              |
-| Reflection       | Learn and update system policies           |
-| Human Oversight  | Approve high-risk actions                  |
+### 3. Initialize database schema
 
----
+```powershell
+python db\init_db.py
+```
 
-## 🧱 Core Features
+### 4. Run backend API
 
-### ✅ Proactive Detection
+```powershell
+$env:PYTHONPATH = (Get-Location).Path
+python -m uvicorn api.fastapi_server:app --host 127.0.0.1 --port 8000
+```
 
-* Detects revenue drops, conversion issues, latency spikes
+### 5. Run frontend
 
-### ✅ Root Cause Intelligence
+```powershell
+cd frontend
+npm install
+npm run dev
+```
 
-* Correlates logs across payment, UX, pricing, and fulfillment
+## Execution Behavior
 
-### ✅ Autonomous Optimization
+Execution stage is blocked unless all are true:
 
-* Suggests pricing changes, campaigns, and UX improvements
+1. Decision is `EXECUTE`
+2. `requires_human_approval` is empty
+3. Confidence is at least `0.6`
+4. Selected action maps to a known action
+5. `ALLOW_AUTO_EXECUTION=true`
 
-### ✅ Safe Simulation
+If any condition fails, execution remains dry-run and reason is set to `blocked_by_guardrails_or_manual_mode`.
 
-* Tests impact before execution
+## Operational Notes
 
-### ✅ Governance & Guardrails
+- `Simulation` output includes both recommendation payload and orchestration metadata such as `next_agent`.
+- `Execution` status can show as blocked in UI when decision is `INVESTIGATE` (expected by current adapter logic).
+- Revenue Insights is derived in frontend adapter from ingestion, simulation, decision, and execution fields.
 
-* Margin protection
-* Discount limits
-* Fraud prevention
-* Kill switch
+## Known Integration Gaps (Current Codebase)
 
-### ✅ Reflection Learning
+These are currently visible in source and should be aligned before production hardening:
 
-* Continuously improves decision quality over time
+1. `api/fastapi_server.py` calls `run_pipeline(execute_approved_only=False)` while `pipeline/run_pipeline.py` defines `run_pipeline()` without parameters.
+2. `api/fastapi_server.py` imports `execute_strategy` in approval flow, but execution module currently exposes `run_execution` and `execute_action`.
+3. Legacy tests in `tests/test_e2e_integration.py` reference older function names not matching current agent exports.
 
----
+## Testing
 
-## 🛡️ Governance Model
+Project contains tests and fixtures in `tests/`.
 
-### Guardrails
+Run tests (if environment is set):
 
-* No discount > 30%
-* No pricing below cost
-* Pricing within competitor bounds
+```powershell
+pytest -q
+```
 
-### Kill Switch
+## Repository Structure (High-Level)
 
-* Revert if conversion drops > 15%
+```text
+agents/
+api/
+db/
+frontend/
+governance/
+pipeline/
+tests/
+utils/
+```
 
-### Blast Radius Control
+## License
 
-* Start with 5% users → expand gradually
-
-### Human-in-the-loop
-
-* Required for high-risk or high-revenue impact actions
-
----
-
-## 📊 Data Sources
-
-* KPI Metrics (revenue, conversion rate, abandonment)
-* Payment Logs
-* User Behavior / Clickstream
-* Product Pricing
-* Campaign Performance
-* Risk / Fraud Signals
-
----
-
-## ⚙️ Tech Stack (Open Source)
-
-* Python
-* PostgreSQL (pgAdmin)
-* Antigravity (Agent execution)
-* Pandas (data processing)
-* Optional: LangGraph / FAISS
-
----
-
-## 🚀 Getting Started
-
-### 1. Setup Database
-
-* Load datasets into PostgreSQL
-* Ensure required tables are available
-
-### 2. Configure Antigravity
-
-* Create agents using provided prompts
-
-### 3. Run Signal Detection Agent
-
-* Provide aggregated KPI input
-* Validate anomaly detection
-
-### 4. Expand to Multi-Agent System
-
-* Add Diagnosis → Strategy → Simulation
-
----
-
-## 🧪 Example Use Case
-
-**Scenario:**
-
-* Conversion drops from 3% → 1.9%
-* Cart abandonment rises to 41%
-* Payment failures spike to 31%
-
-**System Response:**
-
-1. Signal Agent detects anomaly
-2. Diagnosis Agent identifies payment failure
-3. Strategy Agent suggests routing fix
-4. Simulation validates recovery impact
-5. Policy Engine approves
-6. Execution applies to 5% users
-7. Monitoring tracks improvement
-8. Reflection learns outcome
-
----
-
-## 📏 Definition of Done
-
-* ✅ Signal Detection Agent working with real data
-* ✅ At least 3 agents connected end-to-end
-* ✅ Policy Engine enforcing guardrails
-* ✅ Logging and traceability implemented
-* ✅ Demonstration of policy violation handling
-
----
-
-## 📊 Governance Checklist
-
-| Question                  | Status |
-| ------------------------- | ------ |
-| Scope defined             | ✅      |
-| Guardrails implemented    | ✅      |
-| Kill switch defined       | ✅      |
-| Drift detection planned   | ✅      |
-| Human checkpoints defined | ✅      |
-| Blast radius controlled   | ✅      |
-| Cost estimated            | ✅      |
-| Policy ownership defined  | ✅      |
-
----
-
-## 💰 Cost Consideration
-
-* ~$0.004 per agent call
-* ~$0.03 per workflow
-* ROI positive with minimal conversion improvement
-
----
-
-## 🎬 Demo Highlights
-
-* Show anomaly detection in real-time
-* Demonstrate policy rejection (e.g., 40% discount)
-* Show safe fallback and human escalation
-
----
-
-## 🔮 Future Enhancements
-
-* Reinforcement learning for strategy optimization
-* Real-time streaming pipeline
-* Advanced causal inference models
-
----
-
-## 👤 Author
-
-Capstone Project – Agentic AI System Design
-
----
-
-## ⭐ Final Note
-
-AROS is not just an analytics system.
-
-👉 It is a **Decision Intelligence System** that:
-
-* Observes
-* Thinks
-* Acts
-* Learns
-
-Autonomously.
+See `LICENSE`.
